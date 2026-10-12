@@ -171,7 +171,17 @@
           </div>
           <div class="rhythm-wide">
             <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Teclado sem piscar (modo ao vivo do próprio teclado)</span></label>
-            <p class="hint" id="kbLiveHint">Usa o modo “Screen color” do X68HE, o mesmo do app Dynamic RGB do fabricante. Se o teclado apagar ou não mudar de cor numa reação, desligue: as cores voltam a ser enviadas pelo comando clássico (pode piscar).</p>
+            <p class="hint" id="kbLiveHint">Envia as cores ao teclado 30 vezes por segundo, como o app Dynamic RGB do fabricante. Se o teclado não mudar de cor numa reação, faça o teste abaixo: o Lume passa a usar o modo que funcionar no seu teclado.</p>
+            <div class="kb-test">
+              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar o teclado (10 s)</span></button>
+              <div class="kb-ask" id="kbAsk" hidden>
+                <span>Qual cor o teclado mostrou?</span>
+                <button class="chip-btn" data-seen="red">Vermelho</button>
+                <button class="chip-btn" data-seen="green">Verde</button>
+                <button class="chip-btn" data-seen="both">Os dois</button>
+                <button class="chip-btn" data-seen="none">Nenhum (só azul ou nada)</button>
+              </div>
+            </div>
           </div>
         </div>
         <div class="glass adv-card" id="advancedCard">

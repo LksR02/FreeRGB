@@ -224,6 +224,8 @@ namespace LumeRgb
                         Service.NotifyChanged(); return Done(true);
                     }
                 case "diagnostics": return Diagnostics();
+                case "keyboardTest": return After(Service.TestKeyboardLive());
+                case "keyboardTestResult": Service.SetKeyboardTestResult(Str(a, "seen")); app.Reactions.Refresh(); return Done(true);
                 case "updateCheck": app.CheckForUpdates(true); return Done(true);
                 case "updateInstall": app.InstallUpdate(true); return Done(true);
                 default: throw new ArgumentException("Comando desconhecido: " + command);

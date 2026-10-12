@@ -96,12 +96,39 @@ class X68KeyboardControllerTests
         // Same start-up as Dynamic RGB: Windows Dynamic Lighting on the keyboard is switched off before streaming.
         live = new Fake(); live.DynamicLight = true; controller = new X68KeyboardController(); controller.Connect(live);
         controller.Stream(Color.Red, 100);
-        Assert(live.DynamicOffWrites == 1 && !live.DynamicLight && live.FrameWrites == 7, "Windows Dynamic Lighting switched off once, then frames");
+        Assert(live.DynamicOffWrites == 1 && !live.DynamicLight && live.FrameWrites >= 7, "Windows Dynamic Lighting switched off once, then frames");
         controller.Stream(Color.Blue, 100); Assert(live.DynamicOffWrites == 1, "handshake runs once per connection");
         controller.Dispose();
         live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live); controller.Stream(Color.Red, 100);
         Assert(live.DynamicOffWrites == 0, "Dynamic Lighting already off: nothing changed");
         controller.Dispose();
+        // Continuous stream like Dynamic RGB: ~30 frames/s from one call, no GET in between, stops when no longer fed.
+        live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
+        controller.Stream(Color.Red, 100); int q0 = live.QueryCount, f0 = live.FrameWrites;
+        System.Threading.Thread.Sleep(1000);
+        int perSecond = (live.FrameWrites - f0) / 7;
+        Assert(perSecond >= 20 && perSecond <= 35, "one colour keeps streaming at ~30 frames/s (" + perSecond + "/s)");
+        controller.GetZone(); Assert(live.QueryCount == q0 && controller.IsStreaming, "no GET request while streaming (read-back uses the last state)");
+        System.Threading.Thread.Sleep((X68KeyboardController.StreamHoldSeconds + 1) * 1000);
+        int stopped = live.FrameWrites; System.Threading.Thread.Sleep(300);
+        Assert(!controller.IsStreaming && live.FrameWrites == stopped, "stream stops by itself when nobody feeds it");
+        controller.Stream(Color.Blue, 100); controller.Apply(Setting(100, "Static", 50)); stopped = live.FrameWrites; System.Threading.Thread.Sleep(300);
+        Assert(!controller.IsStreaming && live.FrameWrites == stopped && live.State[2] == 1, "a normal command ends the stream first");
+        controller.Dispose();
+        // "overlay" variant: frames over the normal effect, never the Screen color effect (and leaves it if stuck there).
+        live = new Fake(); live.State[2] = 21; live.State[5] = 0; controller = new X68KeyboardController(); controller.Connect(live); controller.LiveVariant = "overlay";
+        controller.Stream(Color.Green, 100);
+        Assert(live.State[2] == 1 && live.FrameWrites >= 7, "overlay variant: leaves Screen color, streams over a static effect");
+        controller.Stream(Color.Red, 100); Assert(live.State[2] == 1, "overlay variant never switches to Screen color");
+        controller.Dispose();
+        // The 10-second keyboard test: red via Screen color, green over the normal effect, then the keyboard is restored.
+        live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
+        var hub = new LightingHub(); hub.Attach(null, controller, "|X68HE:");
+        byte[] original = (byte[])live.State.Clone();
+        hub.TestKeyboardLive();
+        Assert(live.FrameWrites / 7 >= 120, "test streams for ~6 s (" + live.FrameWrites / 7 + " frames)");
+        Assert(live.State[2] == original[2] && live.State[6] == original[6] && live.State[7] == original[7] && live.State[8] == original[8] && !controller.IsStreaming, "after the test the keyboard is back to its own effect and colour");
+        hub.Dispose();
         // A keyboard that refuses the live mode is reported, stays connected and sends no frames.
         live = new Fake(); live.RefuseLive = true; controller = new X68KeyboardController(); controller.Connect(live);
         Throws<NotSupportedException>(() => controller.Stream(Color.Red, 100), "refused live mode reported");

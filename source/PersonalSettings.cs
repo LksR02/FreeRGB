@@ -87,7 +87,8 @@ namespace LumeRgb
         public int SmoothingOrDefault { get { return ReactiveSmoothing ?? 40; } }
         [DataMember] public bool AutoUpdateDisabled;
         [DataMember] public bool KeyboardCompat;
-        [DataMember] public bool AdvancedPaused;      // advanced sensors (elevated LibreHardwareMonitor) switched off by the user or after a bad exit      // reactions drive the keyboard with the classic command (may blink)
+        [DataMember] public bool AdvancedPaused;
+        [DataMember] public string KeyboardLiveVariant;  // "screen" (default) or "overlay", chosen by the keyboard test      // advanced sensors (elevated LibreHardwareMonitor) switched off by the user or after a bad exit      // reactions drive the keyboard with the classic command (may blink)
         [OnDeserializing] void Defaults(StreamingContext context)
         {
             Profiles = new List<LightingProfile>(); Aliases = new List<ZoneAlias>(); Palette = new List<string>(); Widgets = new List<WidgetConfig>();

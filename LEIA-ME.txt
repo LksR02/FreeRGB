@@ -1,4 +1,20 @@
-﻿LUME RGB 3.5 — SENSORES AVANÇADOS NÃO TRAVAM MAIS O APP
+﻿LUME RGB 3.6 — TESTE DO TECLADO + SENSORES AVANÇADOS QUE ABREM DEVAGAR
+
+NOVO NA 3.6
+• Teclado: o modo ao vivo agora transmite as cores 30 vezes por segundo, sem
+  parar e sem leituras no meio, exatamente como o app Dynamic RGB do
+  fabricante (antes era no máximo 4x por segundo).
+• "Testar o teclado (10 s)" em Reações: o teclado fica VERMELHO pelo modo
+  Screen color e depois VERDE por cima do efeito normal. Você clica na cor
+  que viu e o Lume passa a usar esse modo nas reações. Se nenhuma aparecer,
+  ele usa o comando clássico (muda de cor, mas pode piscar).
+• Sensores avançados: no seu PC o LibreHardwareMonitor leva de 30 a 60 s para
+  abrir; o Lume desistia aos 60 s. Agora espera até 3 min, começa a ler a CPU
+  assim que ela abre e só depois adiciona a placa-mãe. O processo de
+  sensores fica aberto por 5 min depois do último uso para não pagar essa
+  espera de novo.
+
+LUME RGB 3.5 — SENSORES AVANÇADOS NÃO TRAVAM MAIS O APP
 
 CORRIGIDO NA 3.5
 • A janela consultava o Agendador de Tarefas do Windows (schtasks) e o

@@ -100,6 +100,8 @@ namespace LumeRgb
             lock (gate)
             {
                 RequireConnected();
+                // Like the manufacturer's apps: no other command while colours are being streamed.
+                if (IsStreaming && latest != null) return DecodeZone(latest);
                 try { latest = ReadReport(); return DecodeZone(latest); }
                 catch { Disconnect(); throw; }
             }
@@ -150,7 +152,7 @@ namespace LumeRgb
         {
             lock (gate)
             {
-                RequireConnected(); ValidateSetting(setting); LastWriteVerified = false;
+                RequireConnected(); ValidateSetting(setting); LastWriteVerified = false; StopStreaming();
                 try
                 {
                     byte[] previous = ReadReport();
@@ -175,7 +177,7 @@ namespace LumeRgb
         {
             lock (gate)
             {
-                RequireConnected(); ValidateSetting(setting); LastWriteVerified = false;
+                RequireConnected(); ValidateSetting(setting); LastWriteVerified = false; StopStreaming();
                 try
                 {
                     if (latest == null) latest = ReadReport();
@@ -194,10 +196,19 @@ namespace LumeRgb
         public const int SyncEffect = 21, SyncColumns = 21, SyncRows = 6, SyncChunk = 56;
         public bool Streaming { get { lock (gate) return latest != null && latest[2] == SyncEffect; } }
         // Set when this keyboard refused the live mode; callers then fall back to ApplyFast for this connection.
-        public bool StreamUnsupported { get; private set; }
+        public bool StreamUnsupported { get; set; }
         // What the live-mode handshake found (for the diagnostics report).
         public string StreamInfo { get; private set; }
+        // "screen": switch to the native Screen color effect, then stream; "overlay": stream over the current effect.
+        public string LiveVariant { get { lock (gate) return variant; } set { lock (gate) variant = value == "overlay" ? "overlay" : "screen"; } }
+        string variant = "screen";
         bool handshakeDone;
+        // The manufacturer's Dynamic RGB sends a frame every ~30 ms, continuously. A background thread does the same
+        // with the latest colour, so the keyboard sees an uninterrupted stream whatever the reaction rate is.
+        public const int FramePeriodMs = 33, StreamHoldSeconds = 3;
+        byte[] liveFrame; DateTime lastStreamCall; int streamGeneration; bool streaming;
+        public bool IsStreaming { get { lock (gate) return streaming; } }
+        public int FramesSent { get; private set; }
         public void Stream(Color color, int brightnessPercent)
         {
             lock (gate)
@@ -208,8 +219,9 @@ namespace LumeRgb
                 {
                     if (latest == null) latest = ReadReport();
                     if (!handshakeDone) { handshakeDone = true; Handshake(); }
-                    if (latest[2] != SyncEffect)
+                    if (variant == "screen" && latest[2] != SyncEffect)
                     {
+                        StopStreaming();
                         byte[] mode = BuildSyncMode(latest); // full hardware brightness; dimming is done in the frames
                         transport.SetFeature(mode);
                         // Like Apply: the firmware may answer with the old state for a moment. Confirm the switch.
@@ -222,15 +234,51 @@ namespace LumeRgb
                             throw new NotSupportedException("O teclado não aceitou o modo ao vivo.");
                         }
                     }
-                    double k = Math.Max(0, Math.Min(100, brightnessPercent)) / 100.0;
-                    byte r = (byte)Math.Round(color.R * k), g = (byte)Math.Round(color.G * k), b = (byte)Math.Round(color.B * k);
-                    byte[] frame = new byte[SyncColumns * SyncRows * 3];
-                    for (int i = 0; i < frame.Length; i += 3) { frame[i] = r; frame[i + 1] = g; frame[i + 2] = b; }
-                    foreach (var chunk in BuildSyncFrame(frame)) transport.SetFeature(chunk);
+                    if (variant == "overlay" && latest[2] == SyncEffect)
+                    {
+                        // Frames go over a normal effect on this keyboard: leave the Screen color effect once.
+                        byte[] plain = BuildReport(latest, new ZoneSetting { Key = ZoneKey, Color = Color.FromArgb(latest[6], latest[7], latest[8]), BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 });
+                        transport.SetFeature(plain); for (int i = 2; i <= 8; i++) latest[i] = plain[i];
+                    }
+                    liveFrame = UniformFrame(color, brightnessPercent);
+                    lastStreamCall = DateTime.UtcNow;
+                    SendFrame(liveFrame);
+                    if (!streaming)
+                    {
+                        streaming = true; int generation = ++streamGeneration;
+                        new Thread(() => StreamLoop(generation)) { IsBackground = true, Name = "X68HE live colours" }.Start();
+                    }
                 }
                 catch (NotSupportedException) { throw; }
                 catch { Disconnect(); throw; }
             }
+        }
+        void StreamLoop(int generation)
+        {
+            while (true)
+            {
+                Thread.Sleep(FramePeriodMs);
+                lock (gate)
+                {
+                    if (generation != streamGeneration) return;
+                    // Nobody refreshed the colour for a while (reactions off, app closing): stop streaming.
+                    if (transport == null || liveFrame == null || (DateTime.UtcNow - lastStreamCall).TotalSeconds > StreamHoldSeconds) { streaming = false; streamGeneration++; return; }
+                    try { SendFrame(liveFrame); }
+                    catch (Exception) { streaming = false; streamGeneration++; Disconnect(); return; }
+                }
+            }
+        }
+        // Caller holds the gate.
+        void StopStreaming() { if (streaming) { streaming = false; streamGeneration++; } }
+        public void EndStream() { lock (gate) StopStreaming(); }
+        void SendFrame(byte[] frame) { foreach (var chunk in BuildSyncFrame(frame)) transport.SetFeature(chunk); FramesSent++; }
+        static byte[] UniformFrame(Color color, int brightnessPercent)
+        {
+            double k = Math.Max(0, Math.Min(100, brightnessPercent)) / 100.0;
+            byte r = (byte)Math.Round(color.R * k), g = (byte)Math.Round(color.G * k), b = (byte)Math.Round(color.B * k);
+            byte[] frame = new byte[SyncColumns * SyncRows * 3];
+            for (int i = 0; i < frame.Length; i += 3) { frame[i] = r; frame[i + 1] = g; frame[i + 2] = b; }
+            return frame;
         }
         // Same start-up as the manufacturer's Dynamic RGB: read the device info (0x8F) and whether the keyboard is
         // listening to Windows "Dynamic Lighting" (0x94). While that is on, the firmware follows Windows instead of
@@ -315,7 +363,7 @@ namespace LumeRgb
         }
         public void Disconnect()
         {
-            lock (gate) { if (transport != null) transport.Dispose(); transport = null; latest = null; LastWriteVerified = false; }
+            lock (gate) { StopStreaming(); if (transport != null) transport.Dispose(); transport = null; latest = null; LastWriteVerified = false; }
         }
         public void Dispose() { Disconnect(); }
     }

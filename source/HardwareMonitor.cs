@@ -262,7 +262,8 @@ namespace LumeRgb
                             Thread.Sleep(1000);
                             string current; double seconds;
                             lock (stageGate) { current = stage; seconds = (DateTime.UtcNow - stageAt).TotalSeconds; }
-                            if (current == null || seconds < (current == "read" ? 15 : 40)) continue;
+                            // Opening can be slow on a busy PC (30–60 s was seen); only a really stuck call is ended.
+                            if (current == null || seconds < (current == "read" ? 30 : 150)) continue;
                             string what = current == "cpu" ? "abrir os sensores da CPU" : current == "board" ? "abrir os sensores da placa-mãe" : "ler os sensores";
                             AppLog.Write("Sensores avançados: o LibreHardwareMonitor travou ao " + what + " (" + (int)seconds + " s). Processo encerrado.");
                             // Never wait on a stuck write here: tell the app if possible, then leave.
@@ -276,12 +277,6 @@ namespace LumeRgb
                     catch (Exception e) { AppLog.Write("Sensores avançados (abrir): " + e); send("error=" + OneLine("O LibreHardwareMonitor não abriu: " + e.GetBaseException().GetType().Name + ": " + e.GetBaseException().Message)); return 3; }
                     try
                     {
-                        if (board)
-                        {
-                            Stage("board"); send("stage=board");
-                            try { source.EnableBoard(); }
-                            catch (Exception e) { AppLog.Write("Sensores avançados (placa-mãe): " + e); send("info=" + OneLine("Placa-mãe indisponível: " + e.GetBaseException().Message)); }
-                        }
                         Stage(null);
                         send("info=" + OneLine(source.Describe()));
                         bool first = true;
@@ -292,6 +287,14 @@ namespace LumeRgb
                             send(line);
                             if (first && line.IndexOf("cpu_temp=", StringComparison.Ordinal) < 0)
                                 send("warn=" + OneLine("O LibreHardwareMonitor abriu, mas não encontrou a temperatura da CPU (" + source.Describe() + "). O driver PawnIO pode estar bloqueado (Integridade de Memória/antivírus) ou exigir reiniciar o PC."));
+                            if (first && board)
+                            {
+                                // CPU readings are already flowing; now add the motherboard (it can take a while to open).
+                                Stage("board"); send("stage=board");
+                                try { source.EnableBoard(); send("info=" + OneLine(source.Describe())); }
+                                catch (Exception e) { AppLog.Write("Sensores avançados (placa-mãe): " + e); send("info=" + OneLine("Placa-mãe indisponível: " + e.GetBaseException().Message)); }
+                                Stage(null);
+                            }
                             first = false;
                             int rest = interval - (int)watch.ElapsedMilliseconds;
                             if (rest > 0) Thread.Sleep(rest);
@@ -301,6 +304,7 @@ namespace LumeRgb
                 }
                 return 0;
             }
+            catch (IOException) { return 1; } // the app closed the pipe: nothing to report
             catch (Exception e) { AppLog.Write("Sensores avançados (processo): " + e); return 1; }
         }
     }
@@ -382,7 +386,7 @@ namespace LumeRgb
         internal Func<bool> DriverCheck = () => PawnIo.Ready;
         internal string PipeName = SensorTask.PipeName;
         internal string Marker = Path.Combine(Path.GetDirectoryName(AppLog.Path), "sensores-avancados.ativo");
-        internal double ConnectSeconds = 15, OpenSeconds = 60, SilentSeconds = 12, ProblemRetrySeconds = 120;
+        internal double ConnectSeconds = 15, OpenSeconds = 180, SilentSeconds = 15, ProblemRetrySeconds = 120;
 
         public string State { get { return state; } }
         public string Detail { get { return detail; } }
@@ -444,7 +448,8 @@ namespace LumeRgb
         {
             if (recheck) { recheck = false; driverReady = DriverCheck(); configured = TaskExists(); Raise(); }
             // Nobody asked for readings for a while (page closed, no reaction): let the helper go.
-            if (wanted && (DateTime.UtcNow - wantedAt).TotalSeconds > 30) wanted = false;
+            // Opening costs up to a minute on some PCs, so the helper stays around for 5 minutes after the last use.
+            if (wanted && (DateTime.UtcNow - wantedAt).TotalSeconds > 300) wanted = false;
             if (paused) { if (pipe != null) StopHost(); Set("paused", pauseReason); return; }
             if (!wanted) { if (pipe != null) StopHost(); if (state == "running" || state == "starting" || state == "paused") Set("off", null); return; }
             if (pipe != null) { Watch(); return; }
@@ -498,14 +503,15 @@ namespace LumeRgb
                     : "O processo de sensores foi encerrado."); return;
             }
             double since; lock (data) since = (DateTime.UtcNow - (lastData == DateTime.MinValue ? startedAt : lastData)).TotalSeconds;
-            if (since > (hostRunning ? SilentSeconds : OpenSeconds))
+            // While the helper is opening something (CPU at start, motherboard later) it may be silent for a while.
+            if (since > (hostRunning && hostStage == null ? SilentSeconds : OpenSeconds))
             {
                 StopHost(); retryAt = DateTime.UtcNow.AddSeconds(ProblemRetrySeconds);
                 Set("error", hostRunning ? "O processo de sensores parou de responder." : "O LibreHardwareMonitor demorou demais para abrir. Veja o registro de erros."); return;
             }
             if (interval != sentInterval) { sentInterval = interval; Send("interval=" + Math.Max(1000, interval)); }
             if (hostRunning) Set("running", hostWarning);
-            else Set("starting", hostStage == "board" ? "Abrindo os sensores da placa-mãe…" : hostStage == "cpu" ? "Abrindo os sensores da CPU…" : "Processo de sensores iniciado…");
+            else Set("starting", hostStage == "cpu" ? "Abrindo os sensores da CPU… (pode levar até 1 minuto)" : "Processo de sensores iniciado…");
         }
         // Reader thread: parses lines only; all decisions are taken by the controller thread.
         void Read(NamedPipeServerStream server)

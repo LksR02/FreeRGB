@@ -226,7 +226,7 @@ namespace LumeRgb
             lastScan = DateTime.UtcNow;
             var found = enumerate();
             ILightingBackend next = backendFactory(found);
-            next.KeyboardLive = KeyboardLiveWanted;
+            next.KeyboardLive = KeyboardLiveWanted; next.KeyboardVariant = KeyboardVariantWanted;
             var list = next.IsConnected ? next.GetZones() : new List<RgbZone>();
             lock (gate)
             {
@@ -259,6 +259,29 @@ namespace LumeRgb
         }
         // ---------- keyboard live mode ----------
         bool KeyboardLiveWanted { get { lock (gate) return !Settings.KeyboardCompat; } }
+        string KeyboardVariantWanted { get { lock (gate) return Settings.KeyboardLiveVariant ?? "screen"; } }
+        // 10-second test: red through the Screen color mode, then green over the normal effect. The user says which one showed.
+        public Task TestKeyboardLive()
+        {
+            return Enqueue("Testando o teclado: veja qual cor aparece…", delegate
+            {
+                EnsureReady();
+                try { backend.TestKeyboardLive(); }
+                finally { lock (gate) streamedKeyboard = null; TryRefresh(); }
+            }, () => "Teste do teclado concluído.");
+        }
+        // seen: red | green | both | none
+        public void SetKeyboardTestResult(string seen)
+        {
+            Mutate(s =>
+            {
+                if (seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
+                else if (seen == "green") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "overlay"; }
+                else { s.KeyboardCompat = true; }
+            });
+            AppLog.Write("Teste do teclado: o usuário viu \"" + seen + "\".");
+            Raise();
+        }
         // True when reactive keyboard updates go through the native live mode (no blinking).
         public bool KeyboardLive
         {
@@ -288,7 +311,8 @@ namespace LumeRgb
                 foreach (var z in zones)
                 {
                     z.Name = ZoneNameUnlocked(z.Key);
-                    if (z.Key == "X68HE" && z.Effect == StreamEffect && streamedKeyboard != null) { z.CurrentColor = streamedKeyboard.Color; z.CurrentBrightnessPercent = streamedKeyboard.BrightnessPercent; }
+                    if (z.Key == "X68HE" && streamedKeyboard != null && (z.Effect == StreamEffect || backend.KeyboardStreamed))
+                    { z.Effect = StreamEffect; z.CurrentColor = streamedKeyboard.Color; z.CurrentBrightnessPercent = streamedKeyboard.BrightnessPercent; }
                 }
             }
         }
@@ -459,7 +483,7 @@ namespace LumeRgb
                     lock (gate) list = list.Where(t => zones.Any(z => z.Key == t.Key)).ToList();
                     if (list.Count == 0) return;
                 }
-                backend.KeyboardLive = KeyboardLiveWanted;
+                backend.KeyboardLive = KeyboardLiveWanted; backend.KeyboardVariant = KeyboardVariantWanted;
                 foreach (var t in list) t.Effect = Normalize(t.Key, t.Effect);
                 try
                 {

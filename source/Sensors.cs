@@ -115,7 +115,7 @@ namespace LumeRgb
                 if (!active)
                 {
                     // Nobody needs sensors for a while: let the elevated helper exit too.
-                    if (Advanced != null && (DateTime.UtcNow - idleSince).TotalSeconds > 30) Advanced.Stop();
+                    if (Advanced != null && (DateTime.UtcNow - idleSince).TotalSeconds > 300) Advanced.Stop();
                     wake.WaitOne(2000); continue;
                 }
                 idleSince = DateTime.UtcNow;

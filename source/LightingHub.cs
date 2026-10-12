@@ -27,6 +27,9 @@ namespace LumeRgb
         bool KeyboardLive { get; set; }
         bool KeyboardStreamed { get; }
         bool KeyboardStreamUnsupported { get; }
+        string KeyboardVariant { get; set; }
+        // Shows red through the Screen color mode, then green over the normal effect (3 s each), then restores.
+        void TestKeyboardLive();
         string Diagnostics();
     }
     public sealed class LightingHub : ILightingBackend
@@ -67,6 +70,37 @@ namespace LumeRgb
         public bool KeyboardLive { get; set; }
         public bool KeyboardStreamed { get; private set; }
         public bool KeyboardStreamUnsupported { get { return keyboard != null && keyboard.StreamUnsupported; } }
+        string keyboardVariant = "screen";
+        public string KeyboardVariant
+        {
+            get { return keyboardVariant; }
+            set { keyboardVariant = value == "overlay" ? "overlay" : "screen"; if (keyboard != null) keyboard.LiveVariant = keyboardVariant; }
+        }
+        public void TestKeyboardLive()
+        {
+            if (keyboard == null || !keyboard.IsConnected) throw new InvalidOperationException("O teclado X68HE não está conectado.");
+            keyboard.EndStream();
+            var before = keyboard.GetZone();
+            var restore = new ZoneSetting { Key = "X68HE", Color = before.CurrentColor, BrightnessPercent = Math.Max(25, before.CurrentBrightnessPercent),
+                Effect = before.Effect == "Breathing" ? "Breathing" : "Static", SpeedPercent = before.CurrentSpeedPercent };
+            try
+            {
+                // 1) native Screen color mode + red frames
+                keyboard.StreamUnsupported = false; keyboard.LiveVariant = "screen";
+                try { for (int i = 0; i < 3; i++) { keyboard.Stream(System.Drawing.Color.Red, 100); System.Threading.Thread.Sleep(1000); } }
+                catch (NotSupportedException) { AppLog.Write("Teste do teclado: modo Screen color recusado."); }
+                // 2) back to a plain colour, then green frames over it
+                keyboard.Apply(new ZoneSetting { Key = "X68HE", Color = System.Drawing.Color.Blue, BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 });
+                keyboard.LiveVariant = "overlay";
+                for (int i = 0; i < 3; i++) { keyboard.Stream(System.Drawing.Color.Lime, 100); System.Threading.Thread.Sleep(1000); }
+                AppLog.Write("Teste do teclado: " + keyboard.FramesSent + " quadros enviados. " + keyboard.StreamInfo);
+            }
+            finally
+            {
+                keyboard.EndStream(); keyboard.LiveVariant = keyboardVariant;
+                if (keyboard.IsConnected) keyboard.Apply(restore);
+            }
+        }
         // One device failing must not hide the other: read each on its own; only fail when nothing answered.
         public List<RgbZone> GetZones()
         {
@@ -88,6 +122,7 @@ namespace LumeRgb
                 try { lines.Add("  GET_LEDPARAM: " + keyboard.RawState()); } catch (Exception e) { lines.Add("  GET_LEDPARAM: " + e.Message); }
                 lines.Add("  modo ao vivo: " + (!KeyboardLive ? "desligado (modo compatível)" : keyboard.StreamUnsupported ? "recusado pelo teclado" : KeyboardStreamed ? "ativo" : "não usado ainda"));
                 lines.Add("  handshake: " + (keyboard.StreamInfo ?? "não executado"));
+                lines.Add("  variante: " + keyboardVariant + ", transmitindo: " + keyboard.IsStreaming + ", quadros enviados: " + keyboard.FramesSent);
             }
             return String.Join("\r\n", lines.ToArray());
         }

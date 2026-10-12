@@ -32,7 +32,7 @@ namespace LumeRgb
         public const string Keyboard = "X68HE";
         readonly Stopwatch clock = Stopwatch.StartNew();
         DateTime lastKeyboardFrame = DateTime.MinValue; bool lastLive = true;
-        public const double KeepAliveSeconds = 0.25;
+        public const double KeepAliveSeconds = 1; // the controller itself re-sends the frame every 33 ms
 
         public ReactiveEngine(LumeService service, ISensorSource sensors) : this(service, sensors, true) { }
         public ReactiveEngine(LumeService service, ISensorSource sensors, bool autoRun)

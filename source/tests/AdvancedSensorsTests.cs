@@ -51,6 +51,7 @@ class AdvancedSensorsTests
                 if (mode == "error") { w.WriteLine("error=O driver PawnIO não está instalado."); return; }
                 if (mode == "silent") { Thread.Sleep(8000); return; }
                 w.WriteLine("stage=cpu");
+                w.WriteLine("cpu_temp=55.5;cpu_power=40.0"); // CPU readings first, the motherboard is added afterwards
                 if (board == "board=1") { w.WriteLine("stage=board"); if (mode == "hangBoard") { w.WriteLine("hang=board"); return; } }
                 var reader = new Thread(() => { try { while (r.ReadLine() != null) { } } catch { } }) { IsBackground = true }; reader.Start();
                 for (int i = 0; i < 400 && pipe.IsConnected; i++) { w.WriteLine("cpu_temp=55.5;cpu_power=40.0"); Thread.Sleep(100); }

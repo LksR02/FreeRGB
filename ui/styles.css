@@ -498,6 +498,9 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
 #smoothRange { margin-top: 8px; }
 .rhythm-wide { grid-column: 1 / -1; border-top: 1px solid var(--stroke); padding-top: 12px; }
 .rhythm-wide .hint { margin: 6px 0 0; }
+.kb-test { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.kb-ask { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.kb-ask .chip-btn { cursor: pointer; }
 .adv-card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; margin-top: 14px; }
 .adv-card .adv-icon { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: color-mix(in srgb, #ffb547 22%, transparent); color: #ffcc80; flex: none; }
 .adv-card.ok .adv-icon { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }

@@ -200,6 +200,20 @@ export function createReactions(h) {
     });
     $('#advLog').addEventListener('click', () => call('open', { what: 'log' }).catch(() => {}));
     $('#advDiag').addEventListener('click', () => call('diagnostics', {}, 'Diagnóstico copiado: cole numa mensagem.').catch(() => {}));
+    $('#kbTest').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; $('#kbAsk').hidden = true;
+      btn.querySelector('span').textContent = 'Olhe para o teclado: vermelho, depois verde…';
+      try { await call('keyboardTest'); $('#kbAsk').hidden = false; } catch { /* toast shown */ }
+      btn.disabled = false; btn.querySelector('span').textContent = 'Testar o teclado de novo (10 s)';
+    });
+    $('#kbAsk').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-seen]'); if (!b) return;
+      const seen = b.dataset.seen;
+      const msg = seen === 'none' ? 'Certo: o teclado vai usar o comando clássico nas reações (muda de cor, mas pode piscar).'
+        : seen === 'green' ? 'Certo: as cores vão por cima do efeito normal do teclado, sem piscar.'
+        : 'Certo: o teclado vai usar o modo Screen color, sem piscar.';
+      call('keyboardTestResult', { seen }, msg).then(() => { $('#kbAsk').hidden = true; }).catch(() => {});
+    });
     $('#advPause').addEventListener('click', () => call('sensorsPause', { paused: true }, 'Sensores avançados pausados.').catch(() => {}));
     $('#advRemove').addEventListener('click', () => call('sensorsRemove', {}, 'Sensores avançados desativados.').catch(() => {}));
     $('#reactionsToggle').addEventListener('change', (e) => call('reactionsEnabled', { on: e.target.checked }, e.target.checked ? 'Reações ativadas.' : 'Reações desligadas. As zonas voltaram às cores anteriores.').catch(() => {}));
