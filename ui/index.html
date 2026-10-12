@@ -171,9 +171,18 @@
           </div>
           <div class="rhythm-wide">
             <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Teclado sem piscar (modo ao vivo do próprio teclado)</span></label>
-            <p class="hint" id="kbLiveHint">Envia as cores ao teclado 30 vezes por segundo, como o app Dynamic RGB do fabricante. Se o teclado não mudar de cor numa reação, faça o teste abaixo: o Lume passa a usar o modo que funcionar no seu teclado.</p>
+            <p class="hint">Modo do teclado nas reações: <b id="kbMode">—</b></p>
             <div class="kb-test">
-              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar o teclado (10 s)</span></button>
+              <button class="btn primary" id="kbLampTest"><svg><use href="#i-bolt"/></svg><span>Testar Iluminação Dinâmica do Windows</span></button>
+              <div class="kb-ask" id="kbLampAsk" hidden>
+                <span>O teclado ficou rosa?</span>
+                <button class="chip-btn" data-lamp="lamp">Sim</button>
+                <button class="chip-btn" data-lamp="nolamp">Não</button>
+              </div>
+            </div>
+            <p class="hint">O caminho em tempo real que o fabricante usa neste teclado: o Lume liga a “Iluminação Dinâmica” no X68HE e manda a cor inteira num único comando, sem reiniciar efeito (sem piscar). Se as cores mudarem sozinhas depois, desligue “Usar a Iluminação Dinâmica nos meus dispositivos” em <button class="link" data-open="lighting">Configurações do Windows › Iluminação dinâmica</button>.</p>
+            <div class="kb-test">
+              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar quadros ao vivo (10 s)</span></button>
               <div class="kb-ask" id="kbAsk" hidden>
                 <span>Qual cor o teclado mostrou?</span>
                 <button class="chip-btn" data-seen="red">Vermelho</button>

@@ -2,7 +2,7 @@
 // Original Windows implementation of X68HE's USB lighting commands, observed
 // in the manufacturer's qmk.top web configurator (source and hashes in evidence).
 // GET_LEDPARAM 0x87, SET_LEDPARAM 0x07 and, for live colours, the manufacturer's Dynamic RGB commands
-// (0x8F/0x94 queries, 0x14 0 = Windows Dynamic Lighting off, 0x0F colour frames). No key maps,
+// (0x8F/0x94 queries, 0x14 = Windows Dynamic Lighting flag, 0x0F colour frames). No key maps,
 // Hall-effect calibration, firmware, reset or analog-stream commands are sent.
 using System;
 using System.Collections.Generic;
@@ -280,9 +280,8 @@ namespace LumeRgb
             for (int i = 0; i < frame.Length; i += 3) { frame[i] = r; frame[i + 1] = g; frame[i + 2] = b; }
             return frame;
         }
-        // Same start-up as the manufacturer's Dynamic RGB: read the device info (0x8F) and whether the keyboard is
-        // listening to Windows "Dynamic Lighting" (0x94). While that is on, the firmware follows Windows instead of
-        // the colour frames, so it is switched off (0x14 0), exactly as Dynamic RGB does for its "device" channel.
+        // Same start-up as the manufacturer's Dynamic RGB: read the device info (0x8F) and the Windows Dynamic
+        // Lighting flag (0x94), kept for the diagnostics report. Nothing is changed here.
         void Handshake()
         {
             var info = new StringBuilder();
@@ -292,15 +291,25 @@ namespace LumeRgb
                 info.Append("0x8F: " + Hex(device, 1, 12));
                 byte[] dynamic = Command(BuildCommand(0x94), true);
                 info.Append(" | 0x94: " + Hex(dynamic, 1, 6));
-                if (dynamic != null && dynamic.Length == ReportLength && dynamic[1] == 0x94 && dynamic[2] == 1)
-                {
-                    Command(BuildCommand(0x14, 0), false);
-                    info.Append(" | Iluminação Dinâmica do Windows desligada no teclado");
-                }
             }
             catch (Exception e) { info.Append(" | handshake: " + e.Message); }
             StreamInfo = info.ToString();
             latest = ReadReport();
+        }
+        // The keyboard's "Microsoft Dynamic Light" flag (0x94 read, 0x14 write): when on, the keyboard also shows up in
+        // Windows as a Dynamic Lighting (HID LampArray) device, which takes live colours without restarting any effect.
+        public bool? DynamicLighting()
+        {
+            lock (gate)
+            {
+                RequireConnected(); StopStreaming();
+                byte[] reply = Command(BuildCommand(0x94), true);
+                return reply != null && reply.Length == ReportLength && reply[1] == 0x94 ? reply[2] == 1 : (bool?)null;
+            }
+        }
+        public void SetDynamicLighting(bool on)
+        {
+            lock (gate) { RequireConnected(); StopStreaming(); Command(BuildCommand(0x14, (byte)(on ? 1 : 0)), false); Thread.Sleep(100); }
         }
         byte[] Command(byte[] report, bool read)
         {
@@ -428,7 +437,8 @@ namespace LumeRgb
                 // Read-only queries (device info, Windows Dynamic Lighting flag) and switching that flag off.
                 int check = 0; for (int i = 1; i <= 7; i++) check += report[i];
                 if (report[8] != (byte)(255 - (check & 255))) throw new ArgumentException("Checksum X68HE inválido.");
-                for (int i = 2; i < report.Length; i++) if (i != 8 && report[i] != 0) throw new ArgumentException("Comando X68HE inválido.");
+                if (report[1] == 0x14 && report[2] > 1) throw new ArgumentException("Comando X68HE inválido.");
+                for (int i = report[1] == 0x14 ? 3 : 2; i < report.Length; i++) if (i != 8 && report[i] != 0) throw new ArgumentException("Comando X68HE inválido.");
                 return;
             }
             if (report[1] == 0x0F)

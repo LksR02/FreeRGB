@@ -259,11 +259,14 @@ namespace LumeRgb
                     {
                         while (true)
                         {
-                            Thread.Sleep(1000);
+                            Thread.Sleep(2000);
                             string current; double seconds;
                             lock (stageGate) { current = stage; seconds = (DateTime.UtcNow - stageAt).TotalSeconds; }
+                            if (current == null) continue;
+                            // Still working (slow reads happen on some PCs): tell the app we are alive.
+                            if (Monitor.TryEnter(writeGate, 200)) { try { writer.WriteLine("alive=" + current + ":" + (int)seconds); } catch { } finally { Monitor.Exit(writeGate); } }
                             // Opening can be slow on a busy PC (30–60 s was seen); only a really stuck call is ended.
-                            if (current == null || seconds < (current == "read" ? 30 : 150)) continue;
+                            if (seconds < (current == "read" ? 120 : 150)) continue;
                             string what = current == "cpu" ? "abrir os sensores da CPU" : current == "board" ? "abrir os sensores da placa-mãe" : "ler os sensores";
                             AppLog.Write("Sensores avançados: o LibreHardwareMonitor travou ao " + what + " (" + (int)seconds + " s). Processo encerrado.");
                             // Never wait on a stuck write here: tell the app if possible, then leave.
@@ -279,12 +282,13 @@ namespace LumeRgb
                     {
                         Stage(null);
                         send("info=" + OneLine(source.Describe()));
-                        bool first = true;
+                        bool first = true; int reads = 0;
                         while (pipe.IsConnected)
                         {
                             var watch = Stopwatch.StartNew();
                             Stage("read"); string line = source.Read(); Stage(null);
                             send(line);
+                            if (++reads <= 3 || reads % 300 == 0) send("info=" + OneLine("Tempo de leitura: " + source.Timings()));
                             if (first && line.IndexOf("cpu_temp=", StringComparison.Ordinal) < 0)
                                 send("warn=" + OneLine("O LibreHardwareMonitor abriu, mas não encontrou a temperatura da CPU (" + source.Describe() + "). O driver PawnIO pode estar bloqueado (Integridade de Memória/antivírus) ou exigir reiniciar o PC."));
                             if (first && board)
@@ -330,9 +334,25 @@ namespace LumeRgb
             if (all.Count == 0) return "nenhum hardware detectado";
             return String.Join("; ", all.Select(h => h.HardwareType + ": " + h.Name + " (" + h.Sensors.Length + " sensores)").ToArray());
         }
+        readonly Dictionary<string, double> cost = new Dictionary<string, double>();
+        readonly Dictionary<string, DateTime> nextUpdate = new Dictionary<string, DateTime>();
+        public string Timings()
+        {
+            return cost.Count == 0 ? "-" : String.Join("; ", cost.Select(c => c.Key + " " + (int)c.Value + " ms").ToArray());
+        }
         public string Read()
         {
-            foreach (var h in Flatten(computer.Hardware)) { try { h.Update(); } catch { } }
+            // Each top-level part is timed; a slow one (seen: seconds per read on some PCs) is read less often,
+            // so it cannot hold the others back.
+            foreach (var h in computer.Hardware)
+            {
+                string key = h.HardwareType + " " + h.Name; DateTime next;
+                if (nextUpdate.TryGetValue(key, out next) && DateTime.UtcNow < next) continue;
+                var watch = Stopwatch.StartNew();
+                try { h.Update(); foreach (var sub in Flatten(h.SubHardware)) sub.Update(); } catch { }
+                double ms = watch.Elapsed.TotalMilliseconds; cost[key] = ms;
+                nextUpdate[key] = DateTime.UtcNow.AddMilliseconds(ms > 1500 ? Math.Max(10000, ms * 4) : 0);
+            }
             var all = Flatten(computer.Hardware).ToList();
             var cpu = all.Where(h => h.HardwareType == LibreHardwareMonitor.Hardware.HardwareType.Cpu).SelectMany(h => h.Sensors).ToList();
             var board = all.Where(h => h.HardwareType == LibreHardwareMonitor.Hardware.HardwareType.SuperIO || h.HardwareType == LibreHardwareMonitor.Hardware.HardwareType.Motherboard).SelectMany(h => h.Sensors).ToList();
@@ -368,7 +388,7 @@ namespace LumeRgb
     {
         readonly object data = new object(); // guards values/lastData only; never held during I/O
         readonly Dictionary<string, double> values = new Dictionary<string, double>();
-        DateTime lastData = DateTime.MinValue;
+        DateTime lastData = DateTime.MinValue, lastAlive = DateTime.MinValue;
         readonly AutoResetEvent wake = new AutoResetEvent(false);
         readonly Thread thread;
         volatile bool disposed, wanted, paused, recheck = true, configured, driverReady;
@@ -421,7 +441,8 @@ namespace LumeRgb
         {
             value = 0;
             if (state != "running") return false;
-            lock (data) { if ((DateTime.UtcNow - lastData).TotalSeconds > 5) return false; return values.TryGetValue(id, out value); }
+            // Readings can be several seconds apart on slow PCs; temperatures do not jump that fast.
+            lock (data) { if ((DateTime.UtcNow - lastData).TotalSeconds > 30) return false; return values.TryGetValue(id, out value); }
         }
         // Called by the sensor loop whenever readings are wanted: only records the wish, never blocks.
         public void Ensure(int intervalMs)
@@ -502,7 +523,12 @@ namespace LumeRgb
                     : stage == "read" ? "O LibreHardwareMonitor travou durante uma leitura e foi encerrado (o Lume continua normal)."
                     : "O processo de sensores foi encerrado."); return;
             }
-            double since; lock (data) since = (DateTime.UtcNow - (lastData == DateTime.MinValue ? startedAt : lastData)).TotalSeconds;
+            double since;
+            lock (data)
+            {
+                DateTime latest = lastData > lastAlive ? lastData : lastAlive; if (latest < startedAt) latest = startedAt;
+                since = (DateTime.UtcNow - latest).TotalSeconds;
+            }
             // While the helper is opening something (CPU at start, motherboard later) it may be silent for a while.
             if (since > (hostRunning && hostStage == null ? SilentSeconds : OpenSeconds))
             {
@@ -524,6 +550,7 @@ namespace LumeRgb
                     if (line.StartsWith("hello=")) { lock (data) lastData = DateTime.UtcNow; continue; }
                     if (line.StartsWith("stage=")) { hostStage = line.Substring(6); lock (data) lastData = DateTime.UtcNow; wake.Set(); continue; }
                     if (line.StartsWith("hang=")) { hostStage = line.Substring(5); continue; }
+                    if (line.StartsWith("alive=")) { lock (data) lastAlive = DateTime.UtcNow; continue; }
                     if (line.StartsWith("error=")) { hostError = line.Substring(6); AppLog.Write("Sensores avançados: " + hostError); continue; }
                     if (line.StartsWith("warn=")) { hostWarning = line.Substring(5); AppLog.Write("Sensores avançados: " + hostWarning); continue; }
                     if (line.StartsWith("info=")) { AppLog.Write("Sensores avançados: " + line.Substring(5)); continue; }
@@ -555,7 +582,7 @@ namespace LumeRgb
             var server = pipe; pipe = null;
             if (server != null) { Send("quit"); try { server.Dispose(); } catch { } }
             writer = null; hostRunning = false;
-            lock (data) { values.Clear(); lastData = DateTime.MinValue; }
+            lock (data) { values.Clear(); lastData = DateTime.MinValue; lastAlive = DateTime.MinValue; }
             try { File.Delete(Marker); } catch { }
         }
 

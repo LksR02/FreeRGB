@@ -93,14 +93,14 @@ class X68KeyboardControllerTests
         int before = live.LightingWrites; controller.Stream(Color.FromArgb(10, 20, 30), 50); controller.Stream(Color.FromArgb(40, 50, 60), 100);
         Assert(live.LightingWrites - before == 1 && live.State[2] == 21, "two streamed colours send the mode command only once");
         controller.Dispose();
-        // Same start-up as Dynamic RGB: Windows Dynamic Lighting on the keyboard is switched off before streaming.
+        // The handshake only reads the Windows Dynamic Lighting flag; it never changes it.
         live = new Fake(); live.DynamicLight = true; controller = new X68KeyboardController(); controller.Connect(live);
         controller.Stream(Color.Red, 100);
-        Assert(live.DynamicOffWrites == 1 && !live.DynamicLight && live.FrameWrites >= 7, "Windows Dynamic Lighting switched off once, then frames");
-        controller.Stream(Color.Blue, 100); Assert(live.DynamicOffWrites == 1, "handshake runs once per connection");
-        controller.Dispose();
-        live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live); controller.Stream(Color.Red, 100);
-        Assert(live.DynamicOffWrites == 0, "Dynamic Lighting already off: nothing changed");
+        Assert(live.DynamicOffWrites == 0 && live.DynamicLight && live.FrameWrites >= 7, "handshake leaves Windows Dynamic Lighting as it is, then frames");
+        // Explicit switch (0x14 1 / 0x14 0), as the manufacturer's Dynamic RGB does for its "system" channel.
+        controller.SetDynamicLighting(false); Assert(!live.DynamicLight && controller.DynamicLighting() == false, "Dynamic Lighting switched off and read back");
+        controller.SetDynamicLighting(true); Assert(live.DynamicLight && controller.DynamicLighting() == true && !controller.IsStreaming, "Dynamic Lighting switched on (stream stopped first)");
+        bad = X68KeyboardController.BuildCommand(0x14, 2); Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(bad), "0x14 only accepts 0 or 1");
         controller.Dispose();
         // Continuous stream like Dynamic RGB: ~30 frames/s from one call, no GET in between, stops when no longer fed.
         live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);

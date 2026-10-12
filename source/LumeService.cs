@@ -270,12 +270,41 @@ namespace LumeRgb
                 finally { lock (gate) streamedKeyboard = null; TryRefresh(); }
             }, () => "Teste do teclado concluído.");
         }
-        // seen: red | green | both | none
+        // Windows Dynamic Lighting test: switch the keyboard's flag on, wait for it to appear as a LampArray device,
+        // then show magenta for 4 s. Returns "shown" or "replug" (the keyboard must be reconnected to appear).
+        public Task<string> TestWindowsLighting()
+        {
+            string outcome = null;
+            var task = Enqueue("Ligando a Iluminação Dinâmica do teclado…", delegate
+            {
+                EnsureReady();
+                bool? flag = backend.KeyboardDynamicLighting();
+                if (flag != true) { backend.SetKeyboardDynamicLighting(true); AppLog.Write("Teclado X68HE: Iluminação Dinâmica do Windows ligada (0x14 1)."); }
+                // The keyboard re-announces itself to Windows: look for the new LampArray interface for up to 15 s.
+                var watch = Stopwatch.StartNew();
+                while (!backend.HasLampArray && watch.Elapsed.TotalSeconds < 15) { Thread.Sleep(1500); try { ScanNow(); } catch (Exception e) { AppLog.Write("Procurar LampArray: " + e.Message); } }
+                if (!backend.HasLampArray) { outcome = "replug"; return; }
+                lock (gate) busyText = "Olhe para o teclado: ele deve ficar rosa…";
+                Raise();
+                backend.TestLampArray();
+                outcome = "shown";
+                TryRefresh();
+            }, () => outcome == "replug" ? "A Iluminação Dinâmica foi ligada no teclado, mas o Windows ainda não o mostrou. Desconecte e reconecte o cabo do teclado e teste de novo."
+                : "Teste concluído: o teclado ficou rosa?");
+            return task.ContinueWith(t => { if (t.IsFaulted) throw t.Exception.InnerException ?? t.Exception; return outcome; });
+        }
+        // seen: red | green | both | none | lamp | nolamp
         public void SetKeyboardTestResult(string seen)
         {
+            if (seen == "nolamp")
+            {
+                // Windows Dynamic Lighting did not work: put the keyboard's flag back as it was.
+                Enqueue(null, delegate { EnsureReady(); backend.SetKeyboardDynamicLighting(false); }, null, true);
+            }
             Mutate(s =>
             {
-                if (seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
+                if (seen == "lamp") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "lamparray"; }
+                else if (seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
                 else if (seen == "green") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "overlay"; }
                 else { s.KeyboardCompat = true; }
             });

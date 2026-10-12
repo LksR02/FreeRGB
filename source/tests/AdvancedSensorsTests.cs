@@ -50,6 +50,14 @@ class AdvancedSensorsTests
                 string board = r.ReadLine(); lastBoard = board;
                 if (mode == "error") { w.WriteLine("error=O driver PawnIO não está instalado."); return; }
                 if (mode == "silent") { Thread.Sleep(8000); return; }
+                if (mode == "slow")
+                {
+                    // One reading, then a long read that only sends heartbeats, then readings again.
+                    w.WriteLine("stage=cpu"); w.WriteLine("cpu_temp=50.0");
+                    for (int i = 0; i < 7; i++) { Thread.Sleep(1000); w.WriteLine("alive=read:" + i); }
+                    for (int i = 0; i < 100 && pipe.IsConnected; i++) { w.WriteLine("cpu_temp=51.0"); Thread.Sleep(100); }
+                    return;
+                }
                 w.WriteLine("stage=cpu");
                 w.WriteLine("cpu_temp=55.5;cpu_power=40.0"); // CPU readings first, the motherboard is added afterwards
                 if (board == "board=1") { w.WriteLine("stage=board"); if (mode == "hangBoard") { w.WriteLine("hang=board"); return; } }
@@ -107,6 +115,15 @@ class AdvancedSensorsTests
         f.Ensure(1000);
         Check(WaitFor(() => f.State == "error", 15), "silent helper stopped after the timeout: " + f.Detail);
         f.Dispose();
+
+        // 6b. Slow reads with heartbeats are not mistaken for a dead helper.
+        var slow = Client("lume-adv-6b", n => "slow", marker);
+        slow.Ensure(1000);
+        Check(WaitFor(() => slow.State == "running", 10), "slow helper running");
+        Thread.Sleep(6000);
+        double t6; Check(slow.State == "running" && slow.TryGet("cpu_temp", out t6), "7 s read with heartbeats: still running, last reading kept");
+        Check(WaitFor(() => slow.TryGet("cpu_temp", out t6) && Math.Abs(t6 - 51) < 0.01, 5), "readings resume after the slow read");
+        slow.Dispose();
 
         // 7. Task Scheduler hangs: every call from the window / sensor loop still returns at once.
         var g = new AdvancedSensors(false, marker);

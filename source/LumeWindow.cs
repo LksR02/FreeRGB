@@ -225,6 +225,7 @@ namespace LumeRgb
                     }
                 case "diagnostics": return Diagnostics();
                 case "keyboardTest": return After(Service.TestKeyboardLive());
+                case "keyboardLampTest": return Service.TestWindowsLighting().ContinueWith(t => { if (t.IsFaulted) throw t.Exception.InnerException ?? t.Exception; return (object)t.Result; });
                 case "keyboardTestResult": Service.SetKeyboardTestResult(Str(a, "seen")); app.Reactions.Refresh(); return Done(true);
                 case "updateCheck": app.CheckForUpdates(true); return Done(true);
                 case "updateInstall": app.InstallUpdate(true); return Done(true);
@@ -350,6 +351,7 @@ namespace LumeRgb
                 what == "source" ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "source") :
                 what == "app" ? AppDomain.CurrentDomain.BaseDirectory : null;
             if (what == "url") { OpenExternal(url); return; }
+            if (what == "lighting") { Process.Start("ms-settings:personalization-lighting"); return; }
             if (what == "log") { if (!File.Exists(AppLog.Path)) throw new InvalidOperationException("Nenhum erro registrado ainda."); Process.Start("notepad.exe", "\"" + AppLog.Path + "\""); return; }
             if (target == null) throw new ArgumentException("Destino desconhecido.");
             Directory.CreateDirectory(target); Process.Start(target);
@@ -398,7 +400,7 @@ namespace LumeRgb
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
-                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", !settings.KeyboardCompat }, { "startWithWindows", SafeStartup() } } },
+                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", !settings.KeyboardCompat }, { "keyboardMode", settings.KeyboardCompat ? "classic" : settings.KeyboardLiveVariant ?? "screen" }, { "startWithWindows", SafeStartup() } } },
             };
         }
         Dictionary<string, object> UpdateState()

@@ -30,6 +30,11 @@ namespace LumeRgb
         string KeyboardVariant { get; set; }
         // Shows red through the Screen color mode, then green over the normal effect (3 s each), then restores.
         void TestKeyboardLive();
+        // Windows Dynamic Lighting (LampArray) path for the keyboard.
+        bool HasLampArray { get; }
+        bool? KeyboardDynamicLighting();
+        void SetKeyboardDynamicLighting(bool on);
+        void TestLampArray();
         string Diagnostics();
     }
     public sealed class LightingHub : ILightingBackend
@@ -60,11 +65,47 @@ namespace LumeRgb
                 catch (Exception e) { if (keyboard != null) keyboard.Dispose(); keyboard = null; DiscoveryNotes.Add("Teclado X68HE: " + e.Message); }
             }
             else if (keyboards.Count > 1) DiscoveryNotes.Add("Mais de um X68HE; controle indisponível até selecionar o teclado.");
+            // Present only while the keyboard's Dynamic Lighting flag is on.
+            var lamps = devices.Where(WindowsLampArray.IsLampArray).ToList();
+            if (keyboard != null && lamps.Count == 1)
+            {
+                try { lamp = new WindowsLampArray(lamps[0].Path); }
+                catch (Exception e) { lamp = null; lampError = e.Message; AppLog.Write("Iluminação Dinâmica do teclado: " + e.Message); }
+            }
         }
+        ILampArray lamp; bool lampHostControl; string lampError;
         // Hardware-free tests attach controllers that already own fake transports.
-        public void Attach(MsiRgbController board, X68KeyboardController keys, string identity)
+        public void Attach(MsiRgbController board, X68KeyboardController keys, string identity) { Attach(board, keys, null, identity); }
+        public void Attach(MsiRgbController board, X68KeyboardController keys, ILampArray lamps, string identity)
         {
-            Dispose(); notes.Clear(); motherboard = board; keyboard = keys; SetupIdentity = identity;
+            Dispose(); notes.Clear(); motherboard = board; keyboard = keys; lamp = lamps; SetupIdentity = identity;
+        }
+        public bool HasLampArray { get { return lamp != null; } }
+        public bool? KeyboardDynamicLighting() { return keyboard == null || !keyboard.IsConnected ? null : keyboard.DynamicLighting(); }
+        public void SetKeyboardDynamicLighting(bool on)
+        {
+            if (keyboard == null || !keyboard.IsConnected) throw new InvalidOperationException("O teclado X68HE não está conectado.");
+            if (!on) ReleaseLamps();
+            keyboard.SetDynamicLighting(on);
+        }
+        // Magenta for 4 s through Windows Dynamic Lighting, then the keyboard gets its own effect back.
+        public void TestLampArray()
+        {
+            if (lamp == null) throw new InvalidOperationException("O teclado ainda não apareceu como dispositivo de Iluminação Dinâmica.");
+            if (keyboard != null) keyboard.EndStream();
+            try
+            {
+                lamp.SetAutonomous(false); lampHostControl = true;
+                for (int i = 0; i < 8; i++) { lamp.SetAll(i % 2 == 0 ? System.Drawing.Color.Magenta : System.Drawing.Color.FromArgb(255, 0, 200)); System.Threading.Thread.Sleep(500); }
+            }
+            finally { ReleaseLamps(); }
+        }
+        // Hand the keys back to the keyboard's own effect.
+        void ReleaseLamps()
+        {
+            if (lamp == null || !lampHostControl) return;
+            lampHostControl = false;
+            try { lamp.SetAutonomous(true); } catch (Exception e) { AppLog.Write("Iluminação Dinâmica (liberar): " + e.Message); }
         }
         public bool NeedsRescan { get { return (motherboard != null && !motherboard.IsConnected) || (keyboard != null && !keyboard.IsConnected); } }
         public bool KeyboardLive { get; set; }
@@ -74,7 +115,12 @@ namespace LumeRgb
         public string KeyboardVariant
         {
             get { return keyboardVariant; }
-            set { keyboardVariant = value == "overlay" ? "overlay" : "screen"; if (keyboard != null) keyboard.LiveVariant = keyboardVariant; }
+            set
+            {
+                keyboardVariant = value == "overlay" ? "overlay" : value == "lamparray" ? "lamparray" : "screen";
+                if (keyboard != null) keyboard.LiveVariant = keyboardVariant == "overlay" ? "overlay" : "screen";
+                if (keyboardVariant != "lamparray") ReleaseLamps();
+            }
         }
         public void TestKeyboardLive()
         {
@@ -97,7 +143,7 @@ namespace LumeRgb
             }
             finally
             {
-                keyboard.EndStream(); keyboard.LiveVariant = keyboardVariant;
+                keyboard.EndStream(); keyboard.LiveVariant = keyboardVariant == "overlay" ? "overlay" : "screen";
                 if (keyboard.IsConnected) keyboard.Apply(restore);
             }
         }
@@ -122,6 +168,9 @@ namespace LumeRgb
                 try { lines.Add("  GET_LEDPARAM: " + keyboard.RawState()); } catch (Exception e) { lines.Add("  GET_LEDPARAM: " + e.Message); }
                 lines.Add("  modo ao vivo: " + (!KeyboardLive ? "desligado (modo compatível)" : keyboard.StreamUnsupported ? "recusado pelo teclado" : KeyboardStreamed ? "ativo" : "não usado ainda"));
                 lines.Add("  handshake: " + (keyboard.StreamInfo ?? "não executado"));
+                bool? flag = null; try { flag = keyboard.IsConnected ? keyboard.DynamicLighting() : null; } catch { }
+                lines.Add("  Iluminação Dinâmica do Windows no teclado: " + (flag == null ? "desconhecida" : flag.Value ? "ligada" : "desligada") +
+                    " | LampArray: " + (lamp != null ? lamp.LampCount + " luzes" + (lampHostControl ? ", controlado pelo Lume" : "") : "não encontrado" + (lampError != null ? " (" + lampError + ")" : "")));
                 lines.Add("  variante: " + keyboardVariant + ", transmitindo: " + keyboard.IsStreaming + ", quadros enviados: " + keyboard.FramesSent);
             }
             return String.Join("\r\n", lines.ToArray());
@@ -155,8 +204,25 @@ namespace LumeRgb
                 if (keySettings.Count > 0)
                 {
                     KeyboardStreamed = false;
-                    if (!fast) keyboard.Apply(keySettings[0]);
-                    else if (KeyboardLive && !keyboard.StreamUnsupported)
+                    if (!fast) { ReleaseLamps(); keyboard.Apply(keySettings[0]); }
+                    else if (KeyboardLive && keyboardVariant == "lamparray" && lamp != null)
+                    {
+                        // Windows Dynamic Lighting: one report with the final colour, nothing restarts on the keyboard.
+                        var k = keySettings[0]; double scale = Math.Max(0, Math.Min(100, k.BrightnessPercent)) / 100.0;
+                        try
+                        {
+                            if (!lampHostControl) { keyboard.EndStream(); lamp.SetAutonomous(false); lampHostControl = true; }
+                            lamp.SetAll(System.Drawing.Color.FromArgb((int)Math.Round(k.Color.R * scale), (int)Math.Round(k.Color.G * scale), (int)Math.Round(k.Color.B * scale)));
+                            KeyboardStreamed = true;
+                        }
+                        catch (Exception e)
+                        {
+                            AppLog.Write("Iluminação Dinâmica do teclado falhou; usando o comando clássico: " + e.Message);
+                            try { lamp.Dispose(); } catch { } lamp = null; lampHostControl = false; lampError = e.Message;
+                            keyboard.ApplyFast(k);
+                        }
+                    }
+                    else if (KeyboardLive && keyboardVariant != "lamparray" && !keyboard.StreamUnsupported)
                     {
                         try { keyboard.Stream(keySettings[0].Color, keySettings[0].BrightnessPercent); KeyboardStreamed = true; }
                         catch (NotSupportedException) { AppLog.Write("Teclado X68HE: modo ao vivo recusado; usando o modo compatível. " + keyboard.StreamInfo); keyboard.ApplyFast(keySettings[0]); }
@@ -184,8 +250,9 @@ namespace LumeRgb
         }
         public void Dispose()
         {
+            ReleaseLamps(); if (lamp != null) try { lamp.Dispose(); } catch { }
             if (motherboard != null) motherboard.Dispose(); if (keyboard != null) keyboard.Dispose();
-            motherboard = null; keyboard = null; LastWriteVerified = false;
+            motherboard = null; keyboard = null; lamp = null; LastWriteVerified = false;
         }
     }
 }

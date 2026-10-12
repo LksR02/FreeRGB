@@ -6,7 +6,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 out="$root/dist"; stage="$out/LumeRGB"; bin="$out/bin"
 rm -rf "$stage" "$bin" "$out/LumeRGB.zip"; mkdir -p "$stage" "$bin"
 cd "$root/source"
-core="MsiRgbController.cs X68KeyboardController.cs WindowsDevices.cs LightingHub.cs PersonalSettings.cs LumeService.cs Sensors.cs Reactive.cs"
+core="MsiRgbController.cs X68KeyboardController.cs WindowsDevices.cs LightingHub.cs LampArray.cs PersonalSettings.cs LumeService.cs Sensors.cs Reactive.cs"
 refs="-r:System.Drawing.dll -r:System.Runtime.Serialization.dll -r:System.Management.dll"
 for t in MsiNativeTests X68KeyboardControllerTests SettingsTests ServiceTests ReactiveTests; do
   mcs -langversion:5 -nologo $refs -out:"$bin/$t.exe" $core "tests/$t.cs"

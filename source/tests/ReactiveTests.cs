@@ -40,6 +40,14 @@ class ReactiveTests
         }
         public void Dispose() { }
     }
+    class FakeLamps : ILampArray
+    {
+        public int LampCount { get { return 68; } }
+        public bool Autonomous = true; public Color Shown = Color.Empty; public int Updates;
+        public void SetAutonomous(bool autonomous) { Autonomous = autonomous; }
+        public void SetAll(Color color) { Shown = color; Updates++; }
+        public void Dispose() { }
+    }
     static byte[] Fixture()
     {
         byte[] b = new byte[185]; for (int i = 0; i < b.Length; i++) b[i] = (byte)(i ^ 0x5A);
@@ -207,6 +215,32 @@ class ReactiveTests
         sensors2.Values["cpu_load"] = 100; for (int i = 0; i < 4; i++) { engine2.Step(1); Settle(service2); }
         Check(stuck.State[6] == 255 && stuck.State[7] == 0, "…and keeps changing colour");
         engine2.Dispose(); service2.Dispose();
+
+        // Windows Dynamic Lighting (LampArray): live colours without a single effect command on the keyboard.
+        var keys3 = new FakeKeys(); var lamps = new FakeLamps();
+        string folder3 = Path.Combine(Path.GetTempPath(), "Lume-reactive-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder3);
+        Func<List<HidDeviceInfo>, ILightingBackend> factory3 = found => {
+            var board = new MsiRgbController(); board.Connect(new FakeHid(Fixture()));
+            var keyboard = new X68KeyboardController(); keyboard.Connect(keys3);
+            var hub = new LightingHub(); hub.Attach(board, keyboard, lamps, "MSI:test|X68HE:"); return hub;
+        };
+        var service3 = new LumeService(Path.Combine(folder3, "settings.json"), factory3, () => new List<HidDeviceInfo>(), () => null);
+        service3.Scan().Wait();
+        var before3 = Zone(service3, "X68HE");
+        var sensors3 = new FakeSensors(); sensors3.Values["cpu_load"] = 0;
+        service3.Mutate(s => { s.Reactions.Add(new ReactiveRule { Id = "k", Name = "CPU", Sensor = "cpu_load", Keys = new List<string> { "X68HE" }, Min = 0, Max = 100,
+            Mode = "color", ColorLow = "#00FF00", ColorHigh = "#FF0000", Brightness = 100, Enabled = true }); s.ReactionsEnabled = true; s.ReactiveSmoothing = 0; s.KeyboardLiveVariant = "lamparray"; });
+        var engine3 = new ReactiveEngine(service3, sensors3, false);
+        int effectCommands = keys3.ModeWrites;
+        for (int i = 0; i < 3; i++) { engine3.Step(1); Settle(service3); }
+        Check(!lamps.Autonomous && lamps.Shown.G == 255 && lamps.Shown.R == 0, "LampArray: keyboard shows the reaction colour (green at 0%)");
+        for (int v = 0; v <= 100; v += 10) { sensors3.Values["cpu_load"] = v; engine3.Step(1); Settle(service3); }
+        Check(lamps.Shown.R == 255 && lamps.Updates >= 10, "LampArray: follows the sensor step by step (" + lamps.Updates + " updates)");
+        Check(keys3.ModeWrites == effectCommands && keys3.Frames == 0, "LampArray: not one effect command or 0x0F frame sent to the keyboard (no blink)");
+        Check(Zone(service3, "X68HE").Effect == LumeService.StreamEffect && Zone(service3, "X68HE").CurrentColor.R == 255, "LampArray: the page shows the live colour");
+        service3.Mutate(s => s.ReactionsEnabled = false); engine3.Refresh(); Settle(service3);
+        Check(lamps.Autonomous && Zone(service3, "X68HE").CurrentColor == before3.CurrentColor, "reactions off: keyboard gets its own effect back");
+        engine3.Dispose(); service3.Dispose();
         Console.WriteLine("ALL REACTIVE TESTS PASSED");
     }
 }

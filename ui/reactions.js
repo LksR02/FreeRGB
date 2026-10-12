@@ -43,6 +43,8 @@ export function createReactions(h) {
     seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.rate) === rate));
     const range = $('#smoothRange');
     if (document.activeElement !== range) { range.value = smooth; range.style.setProperty('--p', smooth + '%'); $('#smoothOut').textContent = smoothLabel(smooth); }
+    const mode = S.prefs.keyboardMode || 'screen';
+    $('#kbMode').textContent = { lamparray: 'Iluminação Dinâmica do Windows (sem piscar)', screen: 'quadros ao vivo (Screen color)', overlay: 'quadros por cima do efeito', classic: 'clássico (pode piscar)' }[mode] || mode;
     $('#rateHint').textContent = rate >= 20 ? 'Máximo: teclado acompanha em tempo real; a placa vai até 15/s.' : rate >= 10 ? 'Fluido para a maioria dos usos.' : 'Econômico: menos escritas USB.';
   }
   function renderAdvanced(adv) {
@@ -205,6 +207,22 @@ export function createReactions(h) {
       btn.querySelector('span').textContent = 'Olhe para o teclado: vermelho, depois verde…';
       try { await call('keyboardTest'); $('#kbAsk').hidden = false; } catch { /* toast shown */ }
       btn.disabled = false; btn.querySelector('span').textContent = 'Testar o teclado de novo (10 s)';
+    });
+    $('#kbLampTest').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; $('#kbLampAsk').hidden = true;
+      btn.querySelector('span').textContent = 'Ligando… olhe para o teclado (pode levar 15 s)';
+      try {
+        const outcome = await call('keyboardLampTest');
+        if (outcome === 'shown') $('#kbLampAsk').hidden = false;
+        else toast('Desconecte e reconecte o cabo do teclado e clique em testar de novo: o Windows precisa reconhecer a Iluminação Dinâmica.', true);
+      } catch { /* toast shown */ }
+      btn.disabled = false; btn.querySelector('span').textContent = 'Testar Iluminação Dinâmica de novo';
+    });
+    $('#kbLampAsk').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-lamp]'); if (!b) return;
+      const ok = b.dataset.lamp === 'lamp';
+      call('keyboardTestResult', { seen: b.dataset.lamp }, ok ? 'Pronto: o teclado vai mudar de cor nas reações sem piscar.' : 'Certo: a Iluminação Dinâmica foi desligada de novo no teclado; ele usa o comando clássico.')
+        .then(() => { $('#kbLampAsk').hidden = true; }).catch(() => {});
     });
     $('#kbAsk').addEventListener('click', (e) => {
       const b = e.target.closest('[data-seen]'); if (!b) return;

@@ -1,4 +1,26 @@
-﻿LUME RGB 3.6 — TESTE DO TECLADO + SENSORES AVANÇADOS QUE ABREM DEVAGAR
+﻿LUME RGB 3.7 — TECLADO PELA ILUMINAÇÃO DINÂMICA DO WINDOWS + SENSORES LENTOS
+
+NOVO NA 3.7
+• O teste da 3.6 mostrou que o X68HE ignora os quadros de cor ao vivo (mais de
+  1000 quadros enviados, nenhuma cor apareceu). Mas o teclado responde ao
+  comando da "Iluminação Dinâmica da Microsoft", e é esse o caminho em tempo
+  real que o app Dynamic RGB do fabricante usa quando o teclado o oferece.
+  "Testar Iluminação Dinâmica do Windows" (em Reações) liga essa função no
+  teclado, espera o Windows reconhecê-lo como dispositivo de Iluminação
+  Dinâmica (HID LampArray) e o deixa ROSA por 4 s. Se ficou rosa, clique em
+  "Sim": nas reações a cor vai num único comando padrão, sem reiniciar
+  nenhum efeito (sem piscar). Se não ficou, "Não" desliga a função de novo.
+  Se o Windows não reconhecer, desconecte e reconecte o cabo do teclado.
+  Se as cores mudarem sozinhas depois, desligue "Usar a Iluminação Dinâmica
+  nos meus dispositivos" em Configurações > Personalização > Iluminação
+  dinâmica (há um atalho na página).
+• Sensores avançados: no seu PC eles funcionaram (CPU 57 °C, placa 42 °C,
+  ventoinha 977 RPM), mas cada leitura com a placa-mãe demorava tanto que o
+  Lume achava que o processo tinha parado. Agora o processo avisa que está
+  vivo durante leituras lentas, mede o tempo de cada parte (vai para o
+  registro) e lê a parte lenta com menos frequência.
+
+LUME RGB 3.6 — TESTE DO TECLADO + SENSORES AVANÇADOS QUE ABREM DEVAGAR
 
 NOVO NA 3.6
 • Teclado: o modo ao vivo agora transmite as cores 30 vezes por segundo, sem

@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.6', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.7', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),
@@ -37,7 +37,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ] },
     advanced: { state: 'setup', detail: null, configured: false, driver: false },
     update: { state: 'available', installed: '9627ee9', installedDate: '2026-10-12T16:28:00Z', remote: 'a1b2c3d', remoteDate: '', behind: 3, changes: ['Reações: luzes seguem CPU, GPU e watts', 'Atualização automática pelo GitHub'], error: null, lastCheck: '17:02', repo: 'LksR02/FreeRGB' },
-    prefs: { reactiveRate: 10, reactiveSmoothing: 40, keyboardLive: true, autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
+    prefs: { reactiveRate: 10, reactiveSmoothing: 40, keyboardLive: true, keyboardMode: 'classic', autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
   };
   let memory = null;
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -130,7 +130,8 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     sensorsWatch: ({ on }) => { watching = on; return sensors(); },
     sensorsSetup: async () => { state.advanced = { state: 'starting', detail: null, configured: true, driver: true }; push(); await wait(1200); state.advanced.state = 'running'; push(); return true; },
     keyboardTest: async () => { await wait(1500); return true; },
-    keyboardTestResult: (a) => { state.prefs.keyboardLive = a.seen !== 'none'; push(); return true; },
+    keyboardTestResult: (a) => { const m = { lamp: 'lamparray', red: 'screen', both: 'screen', green: 'overlay' }[a.seen]; state.prefs.keyboardLive = !!m; state.prefs.keyboardMode = m || 'classic'; push(); return true; },
+    keyboardLampTest: async () => { await wait(1500); return 'shown'; },
     sensorsPause: (a) => { state.advanced = { ...state.advanced, paused: !!a.paused, state: a.paused ? 'paused' : 'running', detail: null }; push(); return true; },
     sensorsRemove: () => { state.advanced = { state: 'setup', detail: null, configured: false, driver: true }; push(); return true; },
     reactionsEnabled: ({ on }) => { state.reactions.enabled = on; push(); return true; },
