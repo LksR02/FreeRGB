@@ -31,7 +31,10 @@ function Invoke-Test([string]$name, [string[]]$extra) {
     if ($code -ne 0) { $output | Write-Output; throw "$name falhou." }
 }
 
+# Same working folder as tools/package.sh (some tests read files such as lume.ico from source\).
+Push-Location $src
 foreach ($test in 'MsiNativeTests', 'X68KeyboardControllerTests', 'SettingsTests', 'ServiceTests', 'ReactiveTests') { Invoke-Test $test @() }
 Invoke-Test 'UpdaterOfflineTests' @('/reference:System.Web.Extensions.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', (Join-Path $src 'Updater.cs'))
 Invoke-Test 'AdvancedSensorsTests' @('/reference:System.Windows.Forms.dll', "/reference:$(Join-Path $root 'lib\LibreHardwareMonitorLib.dll')", (Join-Path $src 'HardwareMonitor.cs'))
+Pop-Location
 Write-Output 'Windows: compilação e testes OK.'
