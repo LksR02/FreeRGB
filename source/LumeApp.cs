@@ -173,7 +173,13 @@ namespace LumeRgb
             catch (Exception e) { Notify("Não foi possível instalar a atualização: " + e.Message, true); return; }
             string args = "--wait-pid " + Process.GetCurrentProcess().Id + " --updated" + (WindowVisible ? "" : " --background");
             try { Process.Start(Application.ExecutablePath, args); }
-            catch (Exception e) { AppLog.Write("Reiniciar após atualização: " + e); }
+            catch (Exception e)
+            {
+                // Keep running (files are already updated): the new version starts next time.
+                AppLog.Write("Reiniciar após atualização: " + e);
+                Notify("Atualização instalada. Não foi possível reiniciar sozinho; feche e abra o Lume para usar a nova versão.", true);
+                return;
+            }
             Exit();
         }
         void OnStateChanged()

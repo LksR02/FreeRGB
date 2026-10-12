@@ -211,10 +211,11 @@ namespace LumeRgb
             };
             using (var process = Process.Start(info))
             {
+                // Both streams drain in the background so a hung compiler cannot block the timeout below.
+                var stdout = process.StandardOutput.ReadToEndAsync();
                 var stderr = process.StandardError.ReadToEndAsync();
-                string stdout = process.StandardOutput.ReadToEnd();
                 if (!process.WaitForExit(180000)) { try { process.Kill(); } catch { } throw new TimeoutException("A compilação demorou demais."); }
-                string log = stdout + stderr.Result;
+                string log = stdout.Result + stderr.Result;
                 if (process.ExitCode != 0 || !File.Exists(output))
                 {
                     AppLog.Write("Atualização: compilação falhou\r\n" + log);
@@ -264,7 +265,16 @@ namespace LumeRgb
                         if (File.Exists(old)) { try { File.Delete(old); } catch { old = target + "." + DateTime.Now.Ticks + ".old"; } }
                         File.Move(target, old); moved.Add(new KeyValuePair<string, string>(target, old));
                     }
-                    File.Copy(file, target); added.Add(target);
+                    added.Add(target); // tracked first: a failed copy may still leave a partial file
+                    File.Copy(file, target);
+                }
+                // Files the new version no longer ships (renamed/removed sources, UI files) must not linger:
+                // COMPILAR.bat compiles every source\*.cs. User files elsewhere are never touched.
+                foreach (var stale in ManagedFiles(AppDirectory).Where(f => !File.Exists(Path.Combine(Stage, f.Substring(AppDirectory.Length).TrimStart('\\', '/')))).ToList())
+                {
+                    string old = stale + ".old";
+                    if (File.Exists(old)) { try { File.Delete(old); } catch { old = stale + "." + DateTime.Now.Ticks + ".old"; } }
+                    File.Move(stale, old); moved.Add(new KeyValuePair<string, string>(stale, old));
                 }
             }
             catch (Exception e)
@@ -278,6 +288,15 @@ namespace LumeRgb
             try { File.Delete(Path.Combine(WorkDirectory, "ready.txt")); } catch { }
             ReadVersion(); Behind = 0;
             Set("installed", null);
+        }
+        static IEnumerable<string> ManagedFiles(string app)
+        {
+            string source = Path.Combine(app, "source"), tests = Path.Combine(source, "tests"), ui = Path.Combine(app, "ui");
+            var files = new List<string>();
+            if (Directory.Exists(source)) files.AddRange(Directory.GetFiles(source).Where(f => new[] { ".cs", ".rsp", ".ps1" }.Contains(Path.GetExtension(f).ToLowerInvariant())));
+            if (Directory.Exists(tests)) files.AddRange(Directory.GetFiles(tests, "*.cs"));
+            if (Directory.Exists(ui)) files.AddRange(Directory.GetFiles(ui, "*", SearchOption.AllDirectories).Where(f => !f.EndsWith(".old", StringComparison.OrdinalIgnoreCase)));
+            return files;
         }
         // Leftovers of the previous swap (old exe/DLLs could not be deleted while in use).
         public void CleanupOldFiles()

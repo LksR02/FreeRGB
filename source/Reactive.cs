@@ -127,6 +127,10 @@ namespace LumeRgb
                     foreach (var key in rule.Keys) if (snap.Zones.Any(z => z.Key == key)) targets[key] = Evaluate(rule, key, value);
                 }
                 controlled.UnionWith(targets.Keys);
+                // Zones removed from every enabled rule (rule switched off, deleted or edited) go back to how they were.
+                var wanted = new HashSet<string>(settings.Reactions.Where(r => r.Enabled).SelectMany(r => r.Keys));
+                var released = controlled.Where(k => !wanted.Contains(k)).ToList();
+                if (released.Count > 0) Release(released);
 
                 var changes = new List<ZoneSetting>();
                 foreach (var target in targets.Values)
@@ -171,10 +175,20 @@ namespace LumeRgb
         void Deactivate()
         {
             active = false; writesPerSecond = 0;
-            var restore = baseline == null ? new List<ZoneSetting>() : baseline.Where(b => controlled.Contains(b.Key)).ToList();
-            baseline = null; controlled.Clear(); sent.Clear(); smoothed.Clear();
-            if (restore.Count == 0 || service.Snapshot().Power == "off") return;
-            try { service.Apply(restore).ContinueWith(t => { if (t.IsFaulted) AppLog.Write("Reações (restaurar): " + t.Exception.InnerException); }); }
+            Release(controlled.ToList());
+            baseline = null; sent.Clear(); smoothed.Clear();
+        }
+        void Release(List<string> keys)
+        {
+            var restore = baseline == null ? new List<ZoneSetting>() : baseline.Where(b => keys.Contains(b.Key)).ToList();
+            foreach (var k in keys) { controlled.Remove(k); sent.Remove(k); }
+            if (restore.Count == 0) return;
+            try
+            {
+                // Lights off: put the pre-reaction state into what "Ligar" will restore instead of switching them on.
+                if (service.Snapshot().Power == "off") { service.RestoreIntoPowerMemory(restore); return; }
+                service.Apply(restore).ContinueWith(t => { if (t.IsFaulted) AppLog.Write("Reações (restaurar): " + t.Exception.InnerException); });
+            }
             catch (Exception e) { AppLog.Write("Reações (restaurar): " + e); }
         }
         public void Dispose()

@@ -442,6 +442,20 @@ namespace LumeRgb
         DateTime lastResync = DateTime.UtcNow; int reactiveWrites;
         public int ReactiveWrites { get { lock (gate) return reactiveWrites; } }
 
+        // Used when reactions stop while everything is off: "Ligar" must bring back the pre-reaction look.
+        public void RestoreIntoPowerMemory(List<ZoneSetting> restore)
+        {
+            Mutate(s =>
+            {
+                var m = s.PowerMemory; if (m == null) return;
+                foreach (var r in restore)
+                {
+                    m.Zones.RemoveAll(z => z.Key == r.Key);
+                    m.Zones.Add(new ZoneProfile { Key = r.Key, ColorHex = SettingsStore.Hex(r.Color), Brightness = r.BrightnessPercent, Effect = Normalize(r.Key, r.Effect), Speed = r.SpeedPercent });
+                }
+                if (restore.Any(r => BoardKeys.Contains(r.Key))) m.BoardReportBase64 = null; // the raw report holds the reactive colours
+            });
+        }
         // Completes once every job queued before it has run (jobs are strictly FIFO).
         public Task Idle() { return Enqueue(null, delegate { }, null, true); }
         public List<ZoneSetting> CurrentSettings()

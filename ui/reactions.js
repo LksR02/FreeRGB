@@ -25,7 +25,7 @@ export function createReactions(h) {
   const mix = (a, b, t) => { const x = parse(a), y = parse(b); return hex(x.map((v, i) => v + (y[i] - v) * t)); };
   function evaluate(rule, value) {
     const t = Math.max(0, Math.min(1, (value - rule.min) / (rule.max - rule.min)));
-    if (rule.mode === 'brightness') return { color: rule.colorHigh, brightness: Math.max(5, Math.round(100 * t)), t };
+    if (rule.mode === 'brightness') return { color: rule.colorHigh, brightness: Math.max(1, Math.round(Math.max(5, 100 * t) * (rule.brightness || 100) / 100)), t };
     const color = rule.colorMid ? (t < 0.5 ? mix(rule.colorLow, rule.colorMid, t * 2) : mix(rule.colorMid, rule.colorHigh, (t - 0.5) * 2)) : mix(rule.colorLow, rule.colorHigh, t);
     return { color, brightness: rule.brightness || 100, t };
   }
@@ -204,7 +204,7 @@ export function createReactions(h) {
       const card = e.target.closest('[data-rule]'); if (!card) return;
       const act = e.target.closest('[data-ract]');
       if (act && act.dataset.ract === 'delete') {
-        if (card.classList.contains('confirm')) call('reactionDelete', { id: card.dataset.rule }, 'Reação excluída.').catch(() => {});
+        if (card.classList.contains('confirm')) { clearTimeout(timers[card.dataset.rule]); delete timers[card.dataset.rule]; call('reactionDelete', { id: card.dataset.rule }, 'Reação excluída.').catch(() => {}); }
         else { card.classList.add('confirm'); act.title = 'Clique de novo para excluir'; setTimeout(() => card.classList.remove('confirm'), 2500); }
         return;
       }

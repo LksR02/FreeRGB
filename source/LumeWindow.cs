@@ -296,7 +296,7 @@ namespace LumeRgb
                 if (dialog.ShowDialog(this) != DialogResult.OK) return null;
                 var imported = SettingsStore.Load(dialog.FileName);
                 if (MessageBox.Show(this, "Substituir suas configurações locais pelas importadas? A iluminação não será alterada.", "Importar", MessageBoxButtons.YesNo) != DialogResult.Yes) return null;
-                Service.ReplaceSettings(imported); app.Widgets.Sync(); app.ApplyHotkeyPreference(); TopMost = Service.Settings.AlwaysOnTop;
+                Service.ReplaceSettings(imported); app.Widgets.Sync(); app.ApplyHotkeyPreference(); app.ApplyReactiveRhythm(); TopMost = Service.Settings.AlwaysOnTop;
                 return dialog.FileName;
             }
         }

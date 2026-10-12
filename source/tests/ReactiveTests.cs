@@ -135,6 +135,20 @@ class ReactiveTests
         for (int i = 0; i < 60; i++) { sensors.Values["gpu_temp"] = 40 + (i % 2) * 30; engine.Step(1 / 30.0); Settle(service); Thread.Sleep(5); }
         double boardPerSecond = (hid.Writes - boardBefore) / 2.0 / watch.Elapsed.TotalSeconds;
         Check(hid.Writes > boardBefore && boardPerSecond <= ReactiveEngine.BoardMaxPerSecond + 1, "board follows a flickering sensor but never above its pace (" + boardPerSecond.ToString("0.0") + "/s)");
+        // A zone taken out of every enabled rule goes back to its pre-reaction colour while other rules keep running.
+        service.Mutate(s => { s.ReactiveSmoothing = 0; }); engine.Refresh();
+        service.Mutate(s => s.Reactions.First(r => r.Id == "r1").Keys.Clear()); engine.Refresh();
+        engine.Step(1); Settle(service);
+        Check(Zone(service, "X68HE").CurrentColor == before, "zone removed from a still-active reaction is restored");
+        Check(Zone(service, "JRAINBOW1").CurrentColor.B == 0xFF, "other reactions keep their zones");
+        // Reactions switched off while everything is off: "Ligar" brings back the pre-reaction colours, not the reactive ones.
+        service.Mutate(s => s.Reactions.First(r => r.Id == "r1").Keys.Add("X68HE")); engine.Refresh();
+        sensors.Values["cpu_load"] = 100; engine.Step(1); Settle(service);
+        Check(Zone(service, "X68HE").CurrentColor.R == 255, "keyboard reactive again");
+        service.SetPower(false).Wait(); engine.Step(1);
+        service.Mutate(s => s.ReactionsEnabled = false); engine.Refresh(); Settle(service);
+        service.SetPower(true).Wait();
+        Check(Zone(service, "X68HE").CurrentColor == before, "disabling reactions while off: Ligar restores the pre-reaction colour");
         bool rejected = false; try { service.Mutate(s => s.Reactions.Add(new ReactiveRule { Id = "bad", Name = "x", Sensor = "cpu_load", Keys = new List<string>(), Min = 5, Max = 5, Mode = "color", ColorLow = "#000000", ColorHigh = "#FFFFFF" })); } catch { rejected = true; }
         Check(rejected, "rule with empty range rejected");
         engine.Dispose(); service.Dispose();

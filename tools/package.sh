@@ -12,6 +12,8 @@ for t in MsiNativeTests X68KeyboardControllerTests SettingsTests ServiceTests Re
   mcs -langversion:5 -nologo $refs -out:"$bin/$t.exe" $core "tests/$t.cs"
   mono "$bin/$t.exe" | tail -1
 done
+mcs -langversion:5 -nologo $refs -r:System.Web.Extensions.dll -r:System.IO.Compression.dll -r:System.IO.Compression.FileSystem.dll -out:"$bin/UpdaterOfflineTests.exe" $core Updater.cs tests/UpdaterOfflineTests.cs
+mono "$bin/UpdaterOfflineTests.exe" mcs | tail -1
 mcs -langversion:5 -nologo $refs -r:System.Windows.Forms.dll -out:"$bin/WidgetPreview.exe" $core DesktopWidgets.cs tests/WidgetPreview.cs
 mono "$bin/WidgetPreview.exe" "$bin" >/dev/null
 # Same options file as COMPILAR.bat and the in-app updater.
