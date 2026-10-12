@@ -21,8 +21,12 @@ function Invoke-Test([string]$name, [string[]]$extra) {
     # csc applies /out: to the source files that follow it, so it must come before every .cs file.
     & $csc /nologo /langversion:5 /platform:x64 "/out:$exe" $refs $extra $core (Join-Path $src "tests\$name.cs")
     if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar $name." }
-    $output = & $exe 2>&1
+    # Windows PowerShell 5.1 turns any stderr line of a native program into a terminating error under 'Stop':
+    # run the test with 'Continue' and judge it by its exit code only.
+    $ErrorActionPreference = 'Continue'
+    $output = & $exe 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
     $output | Select-Object -Last 1 | Write-Output
     if ($code -ne 0) { $output | Write-Output; throw "$name falhou." }
 }
