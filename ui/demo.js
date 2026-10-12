@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.3', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.4', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),
@@ -37,7 +37,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ] },
     advanced: { state: 'setup', detail: null, configured: false, driver: false },
     update: { state: 'available', installed: '9627ee9', installedDate: '2026-10-12T16:28:00Z', remote: 'a1b2c3d', remoteDate: '', behind: 3, changes: ['Reações: luzes seguem CPU, GPU e watts', 'Atualização automática pelo GitHub'], error: null, lastCheck: '17:02', repo: 'LksR02/FreeRGB' },
-    prefs: { reactiveRate: 10, reactiveSmoothing: 40, autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
+    prefs: { reactiveRate: 10, reactiveSmoothing: 40, keyboardLive: true, autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
   };
   let memory = null;
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -87,7 +87,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     widgetLock: ({ id, locked }) => { const w = state.widgets.find((x) => x.id === id); if (w) w.locked = locked; push(); return true; },
     widgetsHighlight: () => true,
     shortcut: () => 'C:\\Users\\voce\\Desktop\\Ligar-Desligar RGB.lnk',
-    export: () => null, import: () => null, open: () => true, quit: () => true,
+    export: () => null, import: () => null, open: () => true, diagnostics: () => 'diagnostico.txt', quit: () => true,
   };
   // Simulated sensors + a tiny copy of the reactive engine, so the demo shows colours moving.
   const names = { cpu_load: ['Uso da CPU', '%', 0, 100], ram_load: ['Uso da memória RAM', '%', 0, 100], gpu_load: ['Uso da GPU', '%', 0, 100], gpu_temp: ['Temperatura da GPU', '°C', 35, 85],

@@ -25,14 +25,16 @@ class ReactiveTests
         public ushort VendorId { get { return 0x3151; } } public ushort ProductId { get { return 0x502D; } }
         public ushort UsagePage { get { return 0xFFFF; } } public ushort Usage { get { return 2; } }
         public int FeatureReportLength { get { return 65; } } public string ProductName { get { return "X68HE"; } }
-        public byte[] State; public int ModeWrites; public byte[] Frame = new byte[378]; public int Frames;
+        public byte[] State; public int ModeWrites; public byte[] Frame = new byte[378]; public int Frames; public bool Fail, RefuseLive;
         // Colour the keyboard is actually showing: streamed frame in live mode, parameters otherwise.
         public int Rgb { get { return State[2] == 21 ? Frame[3] << 16 | Frame[4] << 8 | Frame[5] : State[6] << 16 | State[7] << 8 | State[8]; } }
         public FakeKeys() { State = new byte[65]; State[1] = 0x87; State[2] = 2; State[3] = 2; State[4] = 3; State[5] = 0xA7; State[6] = 10; State[7] = 200; State[8] = 90; }
-        public byte[] GetFeature() { return (byte[])State.Clone(); }
+        public byte[] GetFeature() { if (Fail) throw new IOException("unplugged"); return (byte[])State.Clone(); }
         public void SetFeature(byte[] report)
         {
+            if (Fail) throw new IOException("unplugged");
             X68WindowsHidTransport.ValidateOutgoingReport(report);
+            if (report[1] == 7 && RefuseLive && report[2] == 21) { ModeWrites++; return; }
             if (report[1] == 7) { ModeWrites++; for (int i = 2; i <= 8; i++) State[i] = report[i]; }
             if (report[1] == 0x0F) { Buffer.BlockCopy(report, 9, Frame, report[3] * 56, Math.Min(56, 378 - report[3] * 56)); if (report[5] == 1) Frames++; }
         }
@@ -160,7 +162,51 @@ class ReactiveTests
         Check(Zone(service, "X68HE").CurrentColor == before, "disabling reactions while off: Ligar restores the pre-reaction colour");
         bool rejected = false; try { service.Mutate(s => s.Reactions.Add(new ReactiveRule { Id = "bad", Name = "x", Sensor = "cpu_load", Keys = new List<string>(), Min = 5, Max = 5, Mode = "color", ColorLow = "#000000", ColorHigh = "#FFFFFF" })); } catch { rejected = true; }
         Check(rejected, "rule with empty range rejected");
-        engine.Dispose(); service.Dispose();
+        // Compatible mode (user switch): the keyboard gets classic commands, never the live mode.
+        service.Mutate(s => { s.ReactionsEnabled = true; s.KeyboardCompat = true; }); engine.Refresh();
+        sensors.Values["cpu_load"] = 0; for (int i = 0; i < 3; i++) { engine.Step(1); Settle(service); }
+        Check(keys.State[2] != 21 && keys.State[7] == 255 && Zone(service, "X68HE").Effect != LumeService.StreamEffect && !service.KeyboardLive, "compatible mode: classic keyboard commands, no live mode");
+        service.Mutate(s => s.KeyboardCompat = false); engine.Refresh();
+        for (int i = 0; i < 3; i++) { engine.Step(1); Settle(service); }
+        Check(keys.State[2] == 21 && Zone(service, "X68HE").Effect == LumeService.StreamEffect, "live mode back on: keyboard streams again");
+        // Closing the app while the keyboard streams gives it back its pre-reaction look (no frozen frame left behind).
+        engine.Dispose(); Settle(service);
+        Check(keys.State[2] != 21 && Zone(service, "X68HE").CurrentColor == before, "closing the Lume restores the keyboard from the live mode");
+        service.Dispose();
+
+        // A keyboard left in the live mode (Lume closed abruptly) is healed at start when no reaction uses it.
+        var stuck = new FakeKeys(); stuck.State[2] = 21; stuck.State[5] = 0; stuck.State[6] = 1; stuck.State[7] = 2; stuck.State[8] = 3;
+        string folder2 = Path.Combine(Path.GetTempPath(), "Lume-reactive-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder2);
+        Func<List<HidDeviceInfo>, ILightingBackend> factory2 = found => {
+            var board = new MsiRgbController(); board.Connect(new FakeHid(Fixture()));
+            var keyboard = new X68KeyboardController(); keyboard.Connect(stuck);
+            var hub = new LightingHub(); hub.Attach(board, keyboard, "MSI:test|X68HE:"); return hub;
+        };
+        var service2 = new LumeService(Path.Combine(folder2, "settings.json"), factory2, () => new List<HidDeviceInfo>(), () => null);
+        service2.Scan().Wait();
+        Check(stuck.State[2] == 1 && stuck.State[4] == 4 && Zone(service2, "X68HE").Effect == "Static", "keyboard stuck in live mode at start is brought back to a normal colour");
+
+        // One device stops answering: the other keeps working and the next action reconnects it.
+        stuck.Fail = true;
+        try { service2.ApplyColorToAll("#FF0000", "Static", 100, 0, null).Wait(); } catch { }
+        var zones2 = service2.Snapshot().Zones;
+        Check(zones2.Any(z => z.Key == "JRGB1") && service2.Snapshot().Connected, "keyboard failure does not take the board zones down");
+        stuck.Fail = false; Thread.Sleep(5600); Settle(service2);
+        Check(service2.Snapshot().Zones.Any(z => z.Key == "X68HE"), "keyboard reconnected in the background once it answers again");
+        service2.Apply(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = Color.Blue, BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 } }).Wait();
+        Check(stuck.State[8] == 255 && Zone(service2, "X68HE").CurrentColor.B == 255, "next action reconnects the keyboard and applies the colour");
+
+        // A keyboard that refuses the live mode falls back to classic commands by itself.
+        stuck.RefuseLive = true; service2.Scan().Wait();
+        var sensors2 = new FakeSensors(); sensors2.Values["cpu_load"] = 0;
+        service2.Mutate(s => { s.Reactions.Add(new ReactiveRule { Id = "k", Name = "CPU", Sensor = "cpu_load", Keys = new List<string> { "X68HE" }, Min = 0, Max = 100,
+            Mode = "color", ColorLow = "#00FF00", ColorHigh = "#FF0000", Brightness = 100, Enabled = true }); s.ReactionsEnabled = true; s.ReactiveSmoothing = 0; });
+        var engine2 = new ReactiveEngine(service2, sensors2, false);
+        for (int i = 0; i < 4; i++) { engine2.Step(1); Settle(service2); }
+        Check(stuck.State[2] != 21 && stuck.State[7] == 255 && !service2.KeyboardLive, "keyboard refusing the live mode still follows the reaction (classic commands)");
+        sensors2.Values["cpu_load"] = 100; for (int i = 0; i < 4; i++) { engine2.Step(1); Settle(service2); }
+        Check(stuck.State[6] == 255 && stuck.State[7] == 0, "…and keeps changing colour");
+        engine2.Dispose(); service2.Dispose();
         Console.WriteLine("ALL REACTIVE TESTS PASSED");
     }
 }

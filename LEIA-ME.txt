@@ -1,4 +1,33 @@
-﻿LUME RGB 3.3 — TECLADO AO VIVO SEM PISCAR + SENSORES SEM DRIVER
+﻿LUME RGB 3.4 — CORREÇÕES (TECLADO, RECONEXÃO, SENSORES) + DIAGNÓSTICO
+
+CORRIGIDO NA 3.4
+• Se o teclado (ou a placa) falhasse uma única leitura, o Lume o desconectava
+  e parava de atualizar TODAS as zonas até ser reiniciado. Agora cada
+  dispositivo é lido separadamente, leituras ruins são repetidas e, se um
+  deles cair, o Lume reconecta sozinho na próxima ação (ou em até 5 s
+  durante as Reações).
+• Modo ao vivo do teclado refeito exatamente como o app Dynamic RGB do
+  fabricante: antes de enviar as cores, o Lume consulta o teclado e desliga
+  nele a "Iluminação Dinâmica do Windows" (com ela ligada o teclado ignora as
+  cores enviadas). A troca para o modo ao vivo agora é confirmada; se o
+  teclado recusar, o Lume volta sozinho para o comando clássico.
+  As cores são reenviadas continuamente (4x por segundo no mínimo).
+• Novo interruptor em Reações: "Teclado sem piscar (modo ao vivo)". Se o
+  teclado apagar ou não mudar de cor numa reação, desligue-o.
+• Ao fechar o Lume, o teclado sai do modo ao vivo e volta à cor de antes. Se
+  ele tiver ficado preso nesse modo (Lume fechado à força), o Lume o
+  restaura ao abrir, quando nenhuma reação o usa.
+• Sensores avançados: a tarefa do Windows agora fica na raiz do Agendador
+  ("LumeRGB Sensores") com permissão explícita para o seu usuário iniciá-la.
+  Quem já tinha ativado precisa clicar em "Ativar" de novo (uma vez).
+  O processo de sensores também confirma que recebeu permissão de
+  administrador, e cada etapa fica no registro.
+• "Copiar diagnóstico" (Ajustes > Seus dados, e em Reações): junta o estado
+  dos dispositivos, a resposta crua do teclado, os sensores, a tarefa do
+  Windows e o fim do registro de erros num texto que abre no Bloco de Notas
+  e vai para a área de transferência — é só colar numa mensagem.
+
+LUME RGB 3.3 — TECLADO AO VIVO SEM PISCAR + SENSORES SEM DRIVER
 
 NOVO NA 3.3
 • Teclado sem piscar nas Reações: o X68HE agora usa o modo nativo "Screen

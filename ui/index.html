@@ -169,12 +169,17 @@
             <input type="range" class="range" id="smoothRange" min="0" max="100" step="1">
             <div class="range-labels"><span>Instantânea</span><span>Suave</span><span>Bem lenta</span></div>
           </div>
+          <div class="rhythm-wide">
+            <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Teclado sem piscar (modo ao vivo do próprio teclado)</span></label>
+            <p class="hint" id="kbLiveHint">Usa o modo “Screen color” do X68HE, o mesmo do app Dynamic RGB do fabricante. Se o teclado apagar ou não mudar de cor numa reação, desligue: as cores voltam a ser enviadas pelo comando clássico (pode piscar).</p>
+          </div>
         </div>
         <div class="glass adv-card" id="advancedCard">
           <div class="adv-icon"><svg><use href="#i-thermo"/></svg></div>
           <div class="adv-text"><b id="advTitle">Sensores avançados</b><span id="advText"></span></div>
           <button class="btn primary" id="advAction"><svg><use href="#i-bolt"/></svg><span>Ativar sensores avançados</span></button>
           <button class="link" id="advLog" hidden>Ver registro</button>
+          <button class="link" id="advDiag">Copiar diagnóstico</button>
           <button class="link" id="advRemove" hidden>Desativar</button>
         </div>
         <div class="section-head"><h3>Sensores ao vivo</h3><p>Atualizados várias vezes por segundo enquanto esta página está aberta.</p></div>
@@ -263,7 +268,10 @@
               <button class="btn ghost" id="importBtn"><svg><use href="#i-upload"/></svg><span>Importar</span></button>
               <button class="btn ghost" data-open="settings"><svg><use href="#i-folder"/></svg><span>Pasta das configurações</span></button>
               <button class="btn ghost" data-open="source"><svg><use href="#i-code"/></svg><span>Código-fonte</span></button>
+              <button class="btn ghost" id="diagBtn"><svg><use href="#i-pulse"/></svg><span>Copiar diagnóstico</span></button>
+              <button class="btn ghost" data-open="log"><svg><use href="#i-folder"/></svg><span>Registro de erros</span></button>
             </div>
+            <p class="hint">Algo não funcionou? “Copiar diagnóstico” junta o estado dos dispositivos e sensores e o registro de erros num texto (abre no Bloco de Notas e vai para a área de transferência) para você colar numa mensagem.</p>
             <p class="hint">Tudo fica neste PC: %LOCALAPPDATA%\LumeRGBStandalone. Sem conta; a internet só é usada para buscar atualizações no GitHub.</p>
           </div>
           <div class="glass panel" id="updatePanel">

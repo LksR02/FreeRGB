@@ -10,6 +10,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -215,6 +216,7 @@ namespace LumeRgb
                     Service.Mutate(s => s.Reactions = s.Reactions.Where(r => r.Id != Str(a, "id")).ToList()); app.Reactions.Refresh(); Service.NotifyChanged(); return Done(true);
                 case "sensorsSetup": return AdvancedSetup(false);
                 case "sensorsRemove": return AdvancedSetup(true);
+                case "diagnostics": return Diagnostics();
                 case "updateCheck": app.CheckForUpdates(true); return Done(true);
                 case "updateInstall": app.InstallUpdate(true); return Done(true);
                 default: throw new ArgumentException("Comando desconhecido: " + command);
@@ -274,11 +276,13 @@ namespace LumeRgb
                 if (a.ContainsKey("liveApply")) s.LiveApply = Bool(a, "liveApply");
                 if (a.ContainsKey("autoUpdate")) s.AutoUpdateDisabled = !Bool(a, "autoUpdate");
                 if (a.ContainsKey("reactiveRate")) s.ReactiveRate = Math.Max(1, Math.Min(30, Int(a, "reactiveRate")));
+                if (a.ContainsKey("keyboardLive")) s.KeyboardCompat = !Bool(a, "keyboardLive");
                 if (a.ContainsKey("reactiveSmoothing")) s.ReactiveSmoothing = Math.Max(0, Math.Min(100, Int(a, "reactiveSmoothing")));
             });
             TopMost = Service.Settings.AlwaysOnTop;
             if (a.ContainsKey("hotkey")) app.ApplyHotkeyPreference();
             if (a.ContainsKey("reactiveRate") || a.ContainsKey("reactiveSmoothing")) app.ApplyReactiveRhythm();
+            if (a.ContainsKey("keyboardLive")) app.Reactions.Refresh(); // re-send the keyboard through the chosen path
             app.Widgets.Sync(); Service.NotifyChanged();
         }
         string Export()
@@ -299,6 +303,36 @@ namespace LumeRgb
                 Service.ReplaceSettings(imported); app.Widgets.Sync(); app.ApplyHotkeyPreference(); app.ApplyReactiveRhythm(); TopMost = Service.Settings.AlwaysOnTop;
                 return dialog.FileName;
             }
+        }
+        // "Copiar diagnóstico": one text with everything needed to understand a problem on this PC.
+        Task<object> Diagnostics()
+        {
+            return Task.Factory.StartNew(() =>
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("Lume RGB " + Program.Version + " — diagnóstico " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sb.AppendLine(Environment.OSVersion + "  .NET " + Environment.Version + (Environment.Is64BitProcess ? " x64" : " x86"));
+                sb.AppendLine(); sb.AppendLine("== Dispositivos ==");
+                try { var t = Service.Diagnostics(); sb.AppendLine(t.Wait(8000) ? t.Result : "(o serviço não respondeu em 8 s)"); } catch (Exception e) { sb.AppendLine(e.Message); }
+                sb.AppendLine(); sb.AppendLine("== Sensores ==");
+                foreach (var r in app.Sensors.Snapshot())
+                    sb.AppendLine("  " + r.Id + ": " + (r.Available ? r.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " " + r.Unit + " (" + r.Source + ")" : "indisponível — " + r.Reason));
+                sb.AppendLine(); sb.AppendLine("== Sensores avançados ==");
+                try { sb.AppendLine(app.Advanced.Diagnostics()); } catch (Exception e) { sb.AppendLine(e.Message); }
+                sb.AppendLine(); sb.AppendLine("== Registro (fim de erro.log) ==");
+                try
+                {
+                    if (File.Exists(AppLog.Path)) { var lines = File.ReadAllLines(AppLog.Path); foreach (var l in lines.Skip(Math.Max(0, lines.Length - 120))) sb.AppendLine(l); }
+                    else sb.AppendLine("(vazio)");
+                }
+                catch (Exception e) { sb.AppendLine(e.Message); }
+                string text = sb.ToString();
+                string file = Path.Combine(Path.GetDirectoryName(AppLog.Path), "diagnostico.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, text, new UTF8Encoding(true));
+                app.Post(() => { try { Clipboard.SetText(text); } catch { } try { Process.Start("notepad.exe", "\"" + file + "\""); } catch { } });
+                return (object)file;
+            });
         }
         void Open(string what, string url)
         {
@@ -354,7 +388,7 @@ namespace LumeRgb
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
-                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "startWithWindows", SafeStartup() } } },
+                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", !settings.KeyboardCompat }, { "startWithWindows", SafeStartup() } } },
             };
         }
         Dictionary<string, object> UpdateState()

@@ -10,11 +10,15 @@ class X68KeyboardControllerTests
         public ushort VendorId { get; set; } public ushort ProductId { get; set; }
         public ushort UsagePage { get; set; } public ushort Usage { get; set; }
         public int FeatureReportLength { get; set; } public string ProductName { get; set; }
-        public byte[] State, LastWrite, PendingState; public int QueryCount, LightingWrites, StaleReads, FrameWrites; public bool Disposed, BadReadback;
+        public byte[] State, LastWrite, PendingState; public int QueryCount, LightingWrites, StaleReads, FrameWrites, DynamicOffWrites, GarbageReads; public bool Disposed, BadReadback, DynamicLight, RefuseLive;
+        byte lastCommand = 0x87;
         public Fake() { VendorId = 0x3151; ProductId = 0x502D; UsagePage = 0xFFFF; Usage = 2; FeatureReportLength = 65; ProductName = "X68HE";
             State = new byte[65]; State[1] = 0x87; State[2] = 1; State[3] = 3; State[4] = 4; State[5] = 0xA7; State[6] = 24; State[7] = 56; State[8] = 78; }
         public byte[] GetFeature()
         {
+            if (GarbageReads > 0) { GarbageReads--; byte[] junk = new byte[65]; junk[1] = 0x0F; return junk; }
+            if (lastCommand == 0x94) { byte[] r = new byte[65]; r[1] = 0x94; r[2] = (byte)(DynamicLight ? 1 : 0); return r; }
+            if (lastCommand == 0x8F) { byte[] r = new byte[65]; r[1] = 0x8F; r[2] = 0x21; r[3] = 0x01; return r; }
             byte[] result = (byte[])State.Clone();
             if (PendingState != null && StaleReads-- <= 0) { State = PendingState; PendingState = null; result = (byte[])State.Clone(); }
             return result;
@@ -22,10 +26,13 @@ class X68KeyboardControllerTests
         public void SetFeature(byte[] report)
         {
             X68WindowsHidTransport.ValidateOutgoingReport(report);
+            lastCommand = report[1];
             if (report[1] == 0x87) { QueryCount++; return; }
+            if (report[1] == 0x8F || report[1] == 0x94) return;
+            if (report[1] == 0x14) { DynamicOffWrites++; DynamicLight = report[2] == 1; return; }
             if (report[1] == 0x0F) { FrameWrites++; return; }
             LightingWrites++; LastWrite = (byte[])report.Clone();
-            if (!BadReadback)
+            if (!BadReadback && !(RefuseLive && report[2] == 21))
             {
                 byte[] target = (byte[])State.Clone(); for (int i = 2; i <= 8; i++) target[i] = report[i];
                 if (StaleReads > 0) PendingState = target; else State = target;
@@ -85,6 +92,28 @@ class X68KeyboardControllerTests
         Fake live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
         int before = live.LightingWrites; controller.Stream(Color.FromArgb(10, 20, 30), 50); controller.Stream(Color.FromArgb(40, 50, 60), 100);
         Assert(live.LightingWrites - before == 1 && live.State[2] == 21, "two streamed colours send the mode command only once");
+        controller.Dispose();
+        // Same start-up as Dynamic RGB: Windows Dynamic Lighting on the keyboard is switched off before streaming.
+        live = new Fake(); live.DynamicLight = true; controller = new X68KeyboardController(); controller.Connect(live);
+        controller.Stream(Color.Red, 100);
+        Assert(live.DynamicOffWrites == 1 && !live.DynamicLight && live.FrameWrites == 7, "Windows Dynamic Lighting switched off once, then frames");
+        controller.Stream(Color.Blue, 100); Assert(live.DynamicOffWrites == 1, "handshake runs once per connection");
+        controller.Dispose();
+        live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live); controller.Stream(Color.Red, 100);
+        Assert(live.DynamicOffWrites == 0, "Dynamic Lighting already off: nothing changed");
+        controller.Dispose();
+        // A keyboard that refuses the live mode is reported, stays connected and sends no frames.
+        live = new Fake(); live.RefuseLive = true; controller = new X68KeyboardController(); controller.Connect(live);
+        Throws<NotSupportedException>(() => controller.Stream(Color.Red, 100), "refused live mode reported");
+        Assert(controller.IsConnected && controller.StreamUnsupported && live.FrameWrites == 0, "refused live mode: still connected, no frames");
+        int writes = live.LightingWrites; Throws<NotSupportedException>(() => controller.Stream(Color.Red, 100), "refused live mode not retried");
+        Assert(live.LightingWrites == writes, "no repeated mode commands after a refusal");
+        controller.ApplyFast(Setting(100, "Static", 50)); Assert(live.State[2] == 1, "classic fast command still works");
+        controller.Dispose();
+        // A stale/garbage reply right after a burst no longer drops the keyboard.
+        live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live); live.GarbageReads = 2;
+        Assert(controller.GetZone().Effect == "Static" && controller.IsConnected, "garbage replies retried, keyboard kept");
+        live.GarbageReads = 10; Throws<InvalidDataException>(() => controller.GetZone(), "persistent garbage still reported");
         controller.Dispose();
         Console.WriteLine("RESULT " + count + " meaningful protocol checks passed; no hardware touched.");
     }

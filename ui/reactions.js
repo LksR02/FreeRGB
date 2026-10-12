@@ -195,6 +195,7 @@ export function createReactions(h) {
       btn.disabled = false;
     });
     $('#advLog').addEventListener('click', () => call('open', { what: 'log' }).catch(() => {}));
+    $('#advDiag').addEventListener('click', () => call('diagnostics', {}, 'Diagnóstico copiado: cole numa mensagem.').catch(() => {}));
     $('#advRemove').addEventListener('click', () => call('sensorsRemove', {}, 'Sensores avançados desativados.').catch(() => {}));
     $('#reactionsToggle').addEventListener('change', (e) => call('reactionsEnabled', { on: e.target.checked }, e.target.checked ? 'Reações ativadas.' : 'Reações desligadas. As zonas voltaram às cores anteriores.').catch(() => {}));
     $('#presetRow').addEventListener('click', (e) => {

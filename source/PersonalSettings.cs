@@ -86,6 +86,7 @@ namespace LumeRgb
         public int RateOrDefault { get { return ReactiveRate ?? 10; } }
         public int SmoothingOrDefault { get { return ReactiveSmoothing ?? 40; } }
         [DataMember] public bool AutoUpdateDisabled;
+        [DataMember] public bool KeyboardCompat;      // reactions drive the keyboard with the classic command (may blink)
         [OnDeserializing] void Defaults(StreamingContext context)
         {
             Profiles = new List<LightingProfile>(); Aliases = new List<ZoneAlias>(); Palette = new List<string>(); Widgets = new List<WidgetConfig>();

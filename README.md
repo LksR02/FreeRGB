@@ -4,7 +4,8 @@ Controle de iluminação RGB para Windows (MSI MS-7E30 + teclado X68HE) por USB/
 com interface em WebGPU (biblioteca [Shaders](https://github.com/shader-effects-inc/shaders)),
 widgets na área de trabalho para ligar/desligar tudo, ícone na bandeja e atalho global
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, **Reações** (CPU, RAM, GPU, frequência, disco, rede, temperaturas, watts e ventoinha controlando
-qualquer zona, 1–30 atualizações/s com transição suave; teclado em streaming nativo "Screen color" sem piscar;
+qualquer zona, 1–30 atualizações/s com transição suave; teclado em streaming nativo "Screen color" sem piscar, com volta automática ao modo clássico;
+reconexão automática de dispositivos; botão "Copiar diagnóstico";
 LibreHardwareMonitorLib embutido como opção experimental) e atualização automática a partir do branch `main`.
 
 ![Início](docs/previews/interface-home.png)

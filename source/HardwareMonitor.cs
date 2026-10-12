@@ -32,7 +32,10 @@ namespace LumeRgb
     // ---------- shared helpers ----------
     static class SensorTask
     {
-        public const string Name = "LumeRGB\\Sensores";
+        // Root folder + explicit permission for the user: a task inside a folder created by an elevated
+        // process could be invisible to the normal (non-elevated) app, which then could not start it.
+        public const string Name = "LumeRGB Sensores";
+        public const string OldName = "LumeRGB\\Sensores"; // 3.2–3.3
         public static string PipeName { get { return "LumeRGB.Sensors." + Process.GetCurrentProcess().SessionId; } }
         static int Schtasks(string args, out string output)
         {
@@ -45,13 +48,41 @@ namespace LumeRgb
         }
         public static bool Exists() { string o; try { return Schtasks("/query /tn \"" + Name + "\"", out o) == 0; } catch { return false; } }
         public static bool Run(out string output) { try { return Schtasks("/run /tn \"" + Name + "\"", out output) == 0; } catch (Exception e) { output = e.Message; return false; } }
-        public static bool Delete(out string output) { try { return Schtasks("/delete /tn \"" + Name + "\" /f", out output) == 0; } catch (Exception e) { output = e.Message; return false; } }
+        public static bool Delete(out string output)
+        {
+            string old; try { Schtasks("/delete /tn \"" + OldName + "\" /f", out old); } catch { }
+            try { return Schtasks("/delete /tn \"" + Name + "\" /f", out output) == 0; } catch (Exception e) { output = e.Message; return false; }
+        }
+        public static string Query()
+        {
+            var sb = new StringBuilder();
+            foreach (var name in new[] { Name, OldName })
+            {
+                string o; int code;
+                try { code = Schtasks("/query /tn \"" + name + "\" /v /fo list", out o); } catch (Exception e) { code = -1; o = e.Message; }
+                sb.Append("Tarefa \"" + name + "\": " + (code == 0 ? "encontrada" : "não encontrada (" + code + ")") + "\r\n");
+                if (code == 0)
+                    foreach (var line in o.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).Take(40)) sb.Append("    " + line + "\r\n");
+            }
+            return sb.ToString().TrimEnd();
+        }
         public static bool Create(string exe, out string output)
         {
-            string user = WindowsIdentity.GetCurrent().Name;
+            string old; try { Schtasks("/delete /tn \"" + OldName + "\" /f", out old); } catch { }
+            if (CreateTask(exe, true, out output)) return true;
+            string first = output;
+            if (CreateTask(exe, false, out output)) return true; // without the explicit permission, as in 3.2
+            output = first + " / " + output; return false;
+        }
+        static bool CreateTask(string exe, bool explicitPermission, out string output)
+        {
+            var identity = WindowsIdentity.GetCurrent();
+            string user = identity.Name;
+            string security = explicitPermission && identity.User != null
+                ? "<SecurityDescriptor>D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;FRFX;;;" + identity.User.Value + ")</SecurityDescriptor>" : "";
             string xml = "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\r\n" +
                 "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\r\n" +
-                "  <RegistrationInfo><Description>Lume RGB: sensores de CPU e placa-mãe (LibreHardwareMonitorLib). Iniciada pelo Lume somente quando necessário.</Description></RegistrationInfo>\r\n" +
+                "  <RegistrationInfo>" + security + "<Description>Lume RGB: sensores de CPU e placa-mãe (LibreHardwareMonitorLib). Iniciada pelo Lume somente quando necessário.</Description></RegistrationInfo>\r\n" +
                 "  <Principals><Principal id=\"Author\"><UserId>" + Escape(user) + "</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>\r\n" +
                 "  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>" +
                 "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><AllowHardTerminate>true</AllowHardTerminate><StartWhenAvailable>false</StartWhenAvailable>" +
@@ -196,6 +227,9 @@ namespace LumeRgb
                     }) { IsBackground = true };
                     listen.Start();
                     writer.WriteLine("hello=" + Program.Version);
+                    AppLog.Write("Sensores avançados: processo iniciado (PID " + Process.GetCurrentProcess().Id + ", PawnIO " + (PawnIo.InstalledVersion == null ? "ausente" : PawnIo.InstalledVersion.ToString()) + ").");
+                    if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
+                    { writer.WriteLine("error=O processo de sensores não recebeu permissão de administrador. Clique em Reconfigurar com uma conta de administrador."); return 4; }
                     // Every failure is reported to the app, so the page can say exactly what went wrong.
                     if (!PawnIo.Ready) { writer.WriteLine("error=O driver PawnIO não está instalado (ou é anterior à 2.0). Clique em Reconfigurar."); return 2; }
                     HardwareSource source;
@@ -296,6 +330,8 @@ namespace LumeRgb
         void Set(string state, string detail)
         {
             bool changed; lock (gate) { changed = State != state || Detail != detail; State = state; Detail = detail; }
+            if (changed && (state == "error" || state == "setup" || state == "running"))
+                AppLog.Write("Sensores avançados: " + state + (String.IsNullOrEmpty(detail) ? "" : " — " + detail));
             if (changed) { var h = Changed; if (h != null) try { h(this, EventArgs.Empty); } catch { } }
         }
         public bool TryGet(string id, out double value)
@@ -327,7 +363,7 @@ namespace LumeRgb
                 if (DateTime.UtcNow < retryAt) return;
                 retryAt = DateTime.UtcNow.AddSeconds(30);
             }
-            if (!Configured) { Set("setup", PawnIo.Ready ? "Falta autorizar o processo de sensores." : "Falta instalar o driver PawnIO."); return; }
+            if (!Configured) { Set("setup", PawnIo.Ready ? "Falta autorizar o processo de sensores (a autorização mudou na 3.4: clique em Ativar de novo)." : "Falta instalar o driver PawnIO."); return; }
             // Starting the task and waiting for it can take seconds: never block the sensor loop.
             Set("starting", null); sentInterval = intervalMs;
             ThreadPool.QueueUserWorkItem(_ => StartHost(intervalMs));
@@ -391,6 +427,17 @@ namespace LumeRgb
                 pipe = null; writer = null; values.Clear();
                 if (State == "running" || State == "starting") State = "off";
             }
+        }
+        public string Diagnostics()
+        {
+            var lines = new List<string>();
+            lines.Add("Estado: " + State + (Detail == null ? "" : " — " + Detail));
+            lines.Add("PawnIO: " + (PawnIo.InstalledVersion == null ? "não instalado" : PawnIo.InstalledVersion.ToString()));
+            lines.Add("Este processo é administrador: " + new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator));
+            lines.Add("Executável: " + Application.ExecutablePath);
+            lock (gate) lines.Add("Leituras: " + (values.Count == 0 ? "nenhuma" : String.Join(", ", values.Select(v => v.Key + "=" + v.Value.ToString("0.0", CultureInfo.InvariantCulture)).ToArray())));
+            lines.Add(SensorTask.Query());
+            return String.Join("\r\n", lines.ToArray());
         }
         public void ResetConfiguredCache() { lock (gate) { configured = null; retryAt = DateTime.MinValue; } }
 

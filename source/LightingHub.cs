@@ -21,6 +21,13 @@ namespace LumeRgb
         void ApplyFast(List<ZoneSetting> settings);
         byte[] ReadBoardSnapshot();
         void RestoreBoard(byte[] snapshot);
+        // A device found at detection stopped answering: the service scans again instead of failing forever.
+        bool NeedsRescan { get; }
+        // Fast keyboard writes may use the native live mode (no blinking); false = classic SET_LEDPARAM.
+        bool KeyboardLive { get; set; }
+        bool KeyboardStreamed { get; }
+        bool KeyboardStreamUnsupported { get; }
+        string Diagnostics();
     }
     public sealed class LightingHub : ILightingBackend
     {
@@ -56,12 +63,33 @@ namespace LumeRgb
         {
             Dispose(); notes.Clear(); motherboard = board; keyboard = keys; SetupIdentity = identity;
         }
+        public bool NeedsRescan { get { return (motherboard != null && !motherboard.IsConnected) || (keyboard != null && !keyboard.IsConnected); } }
+        public bool KeyboardLive { get; set; }
+        public bool KeyboardStreamed { get; private set; }
+        public bool KeyboardStreamUnsupported { get { return keyboard != null && keyboard.StreamUnsupported; } }
+        // One device failing must not hide the other: read each on its own; only fail when nothing answered.
         public List<RgbZone> GetZones()
         {
-            var result = new List<RgbZone>();
-            if (motherboard != null) result.AddRange(motherboard.GetZones());
-            if (keyboard != null) result.Add(keyboard.GetZone());
+            var result = new List<RgbZone>(); Exception failure = null;
+            if (motherboard != null && motherboard.IsConnected)
+                try { result.AddRange(motherboard.GetZones()); } catch (Exception e) { failure = e; AppLog.Write("Placa MSI (leitura): " + e.Message); }
+            if (keyboard != null && keyboard.IsConnected)
+                try { result.Add(keyboard.GetZone()); } catch (Exception e) { failure = failure ?? e; AppLog.Write("Teclado X68HE (leitura): " + e.Message); }
+            if (failure != null && result.Count == 0) throw failure;
             return result;
+        }
+        public string Diagnostics()
+        {
+            var lines = new List<string>();
+            lines.Add("Placa MSI: " + (motherboard == null ? "não detectada" : motherboard.IsConnected ? "conectada" : "desconectada"));
+            lines.Add("Teclado X68HE: " + (keyboard == null ? "não detectado" : keyboard.IsConnected ? "conectado" : "desconectado"));
+            if (keyboard != null)
+            {
+                try { lines.Add("  GET_LEDPARAM: " + keyboard.RawState()); } catch (Exception e) { lines.Add("  GET_LEDPARAM: " + e.Message); }
+                lines.Add("  modo ao vivo: " + (!KeyboardLive ? "desligado (modo compatível)" : keyboard.StreamUnsupported ? "recusado pelo teclado" : KeyboardStreamed ? "ativo" : "não usado ainda"));
+                lines.Add("  handshake: " + (keyboard.StreamInfo ?? "não executado"));
+            }
+            return String.Join("\r\n", lines.ToArray());
         }
         public string[] EffectsFor(IEnumerable<string> keys)
         {
@@ -79,8 +107,8 @@ namespace LumeRgb
                 throw new ArgumentException("Item de iluminação desconhecido.");
             var boardSettings = settings.Where(s => s.Key != "X68HE").ToList();
             var keySettings = settings.Where(s => s.Key == "X68HE").ToList();
-            if (boardSettings.Count > 0 && motherboard == null) throw new InvalidOperationException("A placa configurada não está disponível.");
-            if (keySettings.Count > 0 && keyboard == null) throw new InvalidOperationException("O teclado configurado não está disponível.");
+            if (boardSettings.Count > 0 && (motherboard == null || !motherboard.IsConnected)) throw new InvalidOperationException("A placa configurada não está disponível.");
+            if (keySettings.Count > 0 && (keyboard == null || !keyboard.IsConnected)) throw new InvalidOperationException("O teclado configurado não está disponível.");
             foreach (var s in settings) if (!EffectsFor(new[] { s.Key }).Contains(s.Effect)) throw new ArgumentException("Efeito incompatível com " + s.Key + ".");
             foreach (var s in settings) if (s.BrightnessPercent < 0 || s.BrightnessPercent > 100 || s.SpeedPercent < 0 || s.SpeedPercent > 100)
                 throw new ArgumentException("Brilho ou ritmo fora da faixa válida.");
@@ -88,7 +116,18 @@ namespace LumeRgb
             try {
                 if (boardSettings.Count > 0) { if (fast) motherboard.ApplyFast(boardSettings); else motherboard.Apply(boardSettings); boardComplete = true; }
                 // Reactive (fast) keyboard updates stream frames in the native "Screen color" mode: no blinking.
-                if (keySettings.Count > 0) { if (fast) keyboard.Stream(keySettings[0].Color, keySettings[0].BrightnessPercent); else keyboard.Apply(keySettings[0]); }
+                // A keyboard that refuses that mode gets the classic command instead (it may blink, but it works).
+                if (keySettings.Count > 0)
+                {
+                    KeyboardStreamed = false;
+                    if (!fast) keyboard.Apply(keySettings[0]);
+                    else if (KeyboardLive && !keyboard.StreamUnsupported)
+                    {
+                        try { keyboard.Stream(keySettings[0].Color, keySettings[0].BrightnessPercent); KeyboardStreamed = true; }
+                        catch (NotSupportedException) { AppLog.Write("Teclado X68HE: modo ao vivo recusado; usando o modo compatível. " + keyboard.StreamInfo); keyboard.ApplyFast(keySettings[0]); }
+                    }
+                    else keyboard.ApplyFast(keySettings[0]);
+                }
                 LastWriteVerified = (boardSettings.Count == 0 || motherboard.LastWriteVerified) && (keySettings.Count == 0 || keyboard.LastWriteVerified);
             } catch (NotSupportedException) { throw; }
             catch (Exception e) {

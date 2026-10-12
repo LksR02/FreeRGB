@@ -17,7 +17,7 @@ namespace LumeRgb
 {
     static class Program
     {
-        public const string Version = "3.3";
+        public const string Version = "3.4";
         static readonly string[] Commands = { "show", "toggle", "on", "off" };
         public static string EventName(string command) { return "Local\\LumeRGBStandalone." + command; }
 

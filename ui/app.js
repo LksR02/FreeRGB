@@ -465,6 +465,7 @@ function bind() {
   $('#visualLevel').addEventListener('click', (e) => { const b = e.target.closest('[data-level]'); if (b) call('prefs', { visualLevel: b.dataset.level }).catch(() => {}); });
   $('#deviceSearch').addEventListener('input', renderDevices);
   $('#exportBtn').addEventListener('click', () => call('export', {}, (p) => (p ? 'Configurações exportadas.' : null)).catch(() => {}));
+  $('#diagBtn').addEventListener('click', () => call('diagnostics', {}, 'Diagnóstico copiado: cole numa mensagem.').catch(() => {}));
   $('#importBtn').addEventListener('click', () => call('import', {}, (p) => (p ? 'Configurações importadas.' : null)).catch(() => {}));
   $('#quitApp').addEventListener('click', () => call('quit').catch(() => {}));
   $('#ubAction').addEventListener('click', () => call('updateInstall').catch(() => {}));
