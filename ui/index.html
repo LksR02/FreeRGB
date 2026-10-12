@@ -158,7 +158,25 @@
           </div>
           <label class="toggle-line big-toggle"><input type="checkbox" id="reactionsToggle"><span class="switch"></span><span id="reactionsToggleText">Reações desligadas</span></label>
         </div>
-        <div class="section-head"><h3>Sensores ao vivo</h3><p>Atualizados a cada segundo enquanto esta página está aberta.</p></div>
+        <div class="glass rhythm-card">
+          <div class="rhythm-col">
+            <div class="rhythm-head"><h4>Atualizações por segundo</h4><output id="writesOut">—</output></div>
+            <div class="segmented rate-seg" id="rateSeg"></div>
+            <p class="hint" id="rateHint"></p>
+          </div>
+          <div class="rhythm-col">
+            <div class="rhythm-head"><h4>Transição entre as cores</h4><output id="smoothOut">—</output></div>
+            <input type="range" class="range" id="smoothRange" min="0" max="100" step="1">
+            <div class="range-labels"><span>Instantânea</span><span>Suave</span><span>Bem lenta</span></div>
+          </div>
+        </div>
+        <div class="glass adv-card" id="advancedCard">
+          <div class="adv-icon"><svg><use href="#i-thermo"/></svg></div>
+          <div class="adv-text"><b id="advTitle">Sensores avançados</b><span id="advText"></span></div>
+          <button class="btn primary" id="advAction"><svg><use href="#i-bolt"/></svg><span>Ativar sensores avançados</span></button>
+          <button class="link" id="advRemove" hidden>Desativar</button>
+        </div>
+        <div class="section-head"><h3>Sensores ao vivo</h3><p>Atualizados várias vezes por segundo enquanto esta página está aberta.</p></div>
         <div class="sensor-grid" id="sensorGrid"></div>
         <div class="section-head"><h3>Suas reações</h3><p>Cada regra controla as zonas escolhidas. Se duas regras usam a mesma zona, vale a de baixo.</p></div>
         <div class="preset-row" id="presetRow"></div>

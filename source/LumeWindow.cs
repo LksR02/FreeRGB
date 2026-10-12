@@ -26,7 +26,12 @@ namespace LumeRgb
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
         bool ready, watchingSensors;
         LumeService Service { get { return app.Service; } }
-        void OnSensors(object sender, EventArgs e) { app.Post(PushSensors); }
+        DateTime sensorsPushedAt;
+        void OnSensors(object sender, EventArgs e)
+        {
+            if ((DateTime.UtcNow - sensorsPushedAt).TotalMilliseconds < 180) return; // the page animates in between
+            sensorsPushedAt = DateTime.UtcNow; app.Post(PushSensors);
+        }
         void WatchSensors(bool on)
         {
             on = on && Visible;
@@ -39,7 +44,9 @@ namespace LumeRgb
         void PushSensors()
         {
             if (!ready || IsDisposed || web.CoreWebView2 == null) return;
-            try { web.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> { { "type", "sensors" }, { "sensors", SensorList() } })); } catch { }
+            try { web.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> { { "type", "sensors" }, { "sensors", SensorList() },
+                { "engine", new Dictionary<string, object> { { "active", app.Reactions.Active }, { "writesPerSecond", app.Reactions.WritesPerSecond } } },
+                { "advanced", new Dictionary<string, object> { { "state", app.Advanced.State }, { "detail", app.Advanced.Detail } } } })); } catch { }
         }
         List<Dictionary<string, object>> SensorList()
         {
@@ -206,10 +213,25 @@ namespace LumeRgb
                 case "reactionSave": return Done(SaveRule(a));
                 case "reactionDelete":
                     Service.Mutate(s => s.Reactions = s.Reactions.Where(r => r.Id != Str(a, "id")).ToList()); app.Reactions.Refresh(); Service.NotifyChanged(); return Done(true);
+                case "sensorsSetup": return AdvancedSetup(false);
+                case "sensorsRemove": return AdvancedSetup(true);
                 case "updateCheck": app.CheckForUpdates(true); return Done(true);
                 case "updateInstall": app.InstallUpdate(true); return Done(true);
                 default: throw new ArgumentException("Comando desconhecido: " + command);
             }
+        }
+        // Runs the elevated one-time setup off the UI thread (UAC prompt, driver installer).
+        Task<object> AdvancedSetup(bool remove)
+        {
+            if (remove) app.Advanced.Stop();
+            return Task.Factory.StartNew(() =>
+            {
+                bool ok = AdvancedSensors.RunSetup(remove);
+                app.Advanced.ResetConfiguredCache();
+                app.Post(() => Service.NotifyChanged());
+                if (!ok && !remove) throw new InvalidOperationException("A ativação foi cancelada ou não terminou. Nada foi alterado.");
+                return (object)ok;
+            });
         }
         string SaveRule(Dictionary<string, object> a)
         {
@@ -251,9 +273,12 @@ namespace LumeRgb
                 if (a.ContainsKey("alwaysOnTop")) s.AlwaysOnTop = Bool(a, "alwaysOnTop");
                 if (a.ContainsKey("liveApply")) s.LiveApply = Bool(a, "liveApply");
                 if (a.ContainsKey("autoUpdate")) s.AutoUpdateDisabled = !Bool(a, "autoUpdate");
+                if (a.ContainsKey("reactiveRate")) s.ReactiveRate = Math.Max(1, Math.Min(30, Int(a, "reactiveRate")));
+                if (a.ContainsKey("reactiveSmoothing")) s.ReactiveSmoothing = Math.Max(0, Math.Min(100, Int(a, "reactiveSmoothing")));
             });
             TopMost = Service.Settings.AlwaysOnTop;
             if (a.ContainsKey("hotkey")) app.ApplyHotkeyPreference();
+            if (a.ContainsKey("reactiveRate") || a.ContainsKey("reactiveSmoothing")) app.ApplyReactiveRhythm();
             app.Widgets.Sync(); Service.NotifyChanged();
         }
         string Export()
@@ -323,10 +348,12 @@ namespace LumeRgb
                         { "colorLow", r.ColorLow }, { "colorMid", r.ColorMid }, { "colorHigh", r.ColorHigh }, { "brightness", r.Brightness },
                         { "alertAbove", r.AlertAbove }, { "enabled", r.Enabled } }).ToList() } } },
                 { "update", UpdateState() },
+                { "advanced", new Dictionary<string, object> { { "state", app.Advanced.State }, { "detail", app.Advanced.Detail },
+                    { "configured", app.Advanced.Configured }, { "driver", app.Advanced.DriverReady } } },
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
-                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "startWithWindows", SafeStartup() } } },
+                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "startWithWindows", SafeStartup() } } },
             };
         }
         Dictionary<string, object> UpdateState()

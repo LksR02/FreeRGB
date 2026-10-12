@@ -81,6 +81,10 @@ namespace LumeRgb
         [DataMember] public bool LiveApply;
         [DataMember] public List<ReactiveRule> Reactions = new List<ReactiveRule>();
         [DataMember] public bool ReactionsEnabled;
+        [DataMember] public int? ReactiveRate;        // light updates per second (null = 10)
+        [DataMember] public int? ReactiveSmoothing;   // 0 = instant .. 100 = very slow fades (null = 40)
+        public int RateOrDefault { get { return ReactiveRate ?? 10; } }
+        public int SmoothingOrDefault { get { return ReactiveSmoothing ?? 40; } }
         [DataMember] public bool AutoUpdateDisabled;
         [OnDeserializing] void Defaults(StreamingContext context)
         {
@@ -98,7 +102,7 @@ namespace LumeRgb
         public static readonly string[] Effects = { "Static", "Breathing", "Flashing", "Double flashing", "Lightning" };
         public static readonly string[] WidgetStyles = { "orb", "pill", "panel" };
         public static readonly string[] VisualLevels = { "max", "balanced", "light" };
-        public static readonly string[] SensorIds = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power" };
+        public static readonly string[] SensorIds = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan" };
         public static Color ParseColor(string value)
         {
             if (value == null) throw new FormatException("Escolha uma cor hexadecimal como #7C6CFF.");
@@ -149,6 +153,9 @@ namespace LumeRgb
                     throw new InvalidDataException("Reação inválida.");
                 ParseColor(r.ColorLow); ParseColor(r.ColorHigh); if (r.ColorMid != null) ParseColor(r.ColorMid);
             }
+            if ((settings.ReactiveRate.HasValue && (settings.ReactiveRate < 1 || settings.ReactiveRate > 30)) ||
+                (settings.ReactiveSmoothing.HasValue && (settings.ReactiveSmoothing < 0 || settings.ReactiveSmoothing > 100)))
+                throw new InvalidDataException("Ritmo das reações inválido.");
             if (settings.VisualLevel != null && !VisualLevels.Contains(settings.VisualLevel)) throw new InvalidDataException("Nível visual inválido.");
             if (settings.PowerMemory != null)
             {

@@ -472,7 +472,7 @@ function bind() {
   $('#updCheck').addEventListener('click', () => call('updateCheck').catch(() => {}));
   $('#updRepo').addEventListener('click', () => call('open', { what: 'url', url: 'https://github.com/' + (S.update.repo || 'LksR02/FreeRGB') }).catch(() => {}));
   reactions.bind();
-  onSensors((list) => reactions.sensors(list));
+  onSensors((list, extra) => reactions.sensors(list, extra));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.page === 'reactions') reactions.visible(false).then(() => reactions.visible(true)); });
 
   document.addEventListener('keydown', (e) => {

@@ -18,6 +18,7 @@ namespace LumeRgb
         List<RgbZone> GetZones();
         string[] EffectsFor(IEnumerable<string> keys);
         void Apply(List<ZoneSetting> settings);
+        void ApplyFast(List<ZoneSetting> settings);
         byte[] ReadBoardSnapshot();
         void RestoreBoard(byte[] snapshot);
     }
@@ -68,7 +69,9 @@ namespace LumeRgb
             if (requested.Contains("X68HE")) return X68KeyboardController.SupportedEffects;
             return MsiRgbController.SupportedEffects;
         }
-        public void Apply(List<ZoneSetting> settings)
+        public void Apply(List<ZoneSetting> settings) { Write(settings, false); }
+        public void ApplyFast(List<ZoneSetting> settings) { Write(settings, true); }
+        void Write(List<ZoneSetting> settings, bool fast)
         {
             if (settings == null || settings.Count == 0) throw new ArgumentException("Selecione um item de iluminação.");
             if (settings.Select(s => s.Key).Distinct().Count() != settings.Count) throw new ArgumentException("Seleção de zonas duplicada.");
@@ -83,10 +86,11 @@ namespace LumeRgb
                 throw new ArgumentException("Brilho ou ritmo fora da faixa válida.");
             LastWriteVerified = false; bool boardComplete = false;
             try {
-                if (boardSettings.Count > 0) { motherboard.Apply(boardSettings); boardComplete = true; }
-                if (keySettings.Count > 0) keyboard.Apply(keySettings[0]);
+                if (boardSettings.Count > 0) { if (fast) motherboard.ApplyFast(boardSettings); else motherboard.Apply(boardSettings); boardComplete = true; }
+                if (keySettings.Count > 0) { if (fast) keyboard.ApplyFast(keySettings[0]); else keyboard.Apply(keySettings[0]); }
                 LastWriteVerified = (boardSettings.Count == 0 || motherboard.LastWriteVerified) && (keySettings.Count == 0 || keyboard.LastWriteVerified);
-            } catch (Exception e) {
+            } catch (NotSupportedException) { throw; }
+            catch (Exception e) {
                 throw new InvalidOperationException((boardComplete && keySettings.Count > 0 ? "A placa foi configurada, mas o teclado não concluiu. " : "") + e.Message);
             }
         }

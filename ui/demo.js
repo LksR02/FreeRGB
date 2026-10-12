@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.1', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.2', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),
@@ -35,8 +35,9 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
       { id: 'demo-cpu', name: 'CPU no teclado', sensor: 'cpu_load', keys: ['X68HE'], min: 0, max: 100, mode: 'color', colorLow: '#00E676', colorMid: '#FFD600', colorHigh: '#FF1744', brightness: 100, alertAbove: 90, enabled: true },
       { id: 'demo-gpu', name: 'GPU quente nas ventoinhas', sensor: 'gpu_temp', keys: ['JRAINBOW1'], min: 35, max: 85, mode: 'color', colorLow: '#00B0FF', colorMid: '#7C4DFF', colorHigh: '#FF1744', brightness: 100, alertAbove: null, enabled: true },
     ] },
+    advanced: { state: 'setup', detail: null, configured: false, driver: false },
     update: { state: 'available', installed: '9627ee9', installedDate: '2026-10-12T16:28:00Z', remote: 'a1b2c3d', remoteDate: '', behind: 3, changes: ['Reações: luzes seguem CPU, GPU e watts', 'Atualização automática pelo GitHub'], error: null, lastCheck: '17:02', repo: 'LksR02/FreeRGB' },
-    prefs: { autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
+    prefs: { reactiveRate: 10, reactiveSmoothing: 40, autoUpdate: true, visualLevel: 'max', reduceMotion: false, widgetsOnTop: false, widgetsStill: false, quitOnClose: false, hotkey: true, alwaysOnTop: false, liveApply: false, startWithWindows: false },
   };
   let memory = null;
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -90,22 +91,28 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
   };
   // Simulated sensors + a tiny copy of the reactive engine, so the demo shows colours moving.
   const names = { cpu_load: ['Uso da CPU', '%', 0, 100], ram_load: ['Uso da memória RAM', '%', 0, 100], gpu_load: ['Uso da GPU', '%', 0, 100], gpu_temp: ['Temperatura da GPU', '°C', 35, 85],
-    gpu_power: ['Consumo da GPU', 'W', 20, 250], cpu_temp: ['Temperatura da CPU', '°C', 35, 90], cpu_power: ['Consumo da CPU', 'W', 15, 140], total_power: ['Consumo CPU + GPU', 'W', 50, 400] };
+    gpu_power: ['Consumo da GPU', 'W', 20, 250], cpu_temp: ['Temperatura da CPU', '°C', 35, 90], cpu_power: ['Consumo da CPU', 'W', 15, 140], total_power: ['Consumo CPU + GPU', 'W', 50, 400], board_temp: ['Temperatura da placa-mãe', '°C', 25, 60], cpu_fan: ['Ventoinha da CPU', 'RPM', 500, 2500] };
   let t0 = 0, watching = false;
   const sensors = () => {
     t0 += 1; const w = (a, b, p) => a + (b - a) * (0.5 + 0.5 * Math.sin(t0 / p));
     const v = { cpu_load: w(8, 96, 3), ram_load: w(41, 58, 9), gpu_load: w(2, 99, 5), gpu_temp: w(38, 79, 7), gpu_power: w(24, 231, 5) };
     return Object.keys(names).map((id) => {
       const [name, unit, min, max] = names[id];
-      if (id === 'cpu_temp') return { id, name, unit, min, max, available: true, value: Math.round(w(41, 83, 4) * 10) / 10, source: 'ACPI (aproximada)' };
-      if (id === 'cpu_power' || id === 'total_power') return { id, name, unit, min, max, available: false, value: 0, reason: 'Abra o LibreHardwareMonitor (opção WMI ativa) para medir a CPU com precisão.' };
+      const adv = state.advanced.state === 'running';
+      if (id === 'cpu_temp') return { id, name, unit, min, max, available: true, value: Math.round(w(41, 83, 4) * 10) / 10, source: adv ? 'LibreHardwareMonitor (embutido)' : 'ACPI (aproximada)' };
+      if (['cpu_power', 'total_power', 'board_temp', 'cpu_fan'].includes(id)) {
+        if (!adv) return { id, name, unit, min, max, available: false, value: 0, reason: 'Ative os sensores avançados no topo da página Reações (pede permissão de administrador uma única vez).' };
+        const val = { cpu_power: w(22, 131, 3), total_power: w(60, 360, 4), board_temp: w(34, 46, 11), cpu_fan: w(700, 1900, 6) }[id];
+        return { id, name, unit, min, max, available: true, value: Math.round(val * 10) / 10, source: 'LibreHardwareMonitor (embutido)' };
+      }
       return { id, name, unit, min, max, available: true, value: Math.round(v[id] * 10) / 10, source: id.startsWith('gpu') ? 'NVIDIA' : 'Windows' };
     });
   };
   const mixHex = (a, b, t) => '#' + [0, 2, 4].map((i) => Math.round(parseInt(a.substr(1 + i, 2), 16) + (parseInt(b.substr(1 + i, 2), 16) - parseInt(a.substr(1 + i, 2), 16)) * t).toString(16).padStart(2, '0')).join('').toUpperCase();
+  let ticks = 0;
   setInterval(() => {
-    const list = sensors();
-    if (watching) emitSensors(list);
+    const list = sensors(); ticks++;
+    if (watching) emitSensors(list, { engine: { active: state.reactions.enabled, writesPerSecond: Math.min(state.prefs.reactiveRate, 9.6 + (ticks % 3) / 10) }, advanced: state.advanced });
     if (!state.reactions.enabled || state.power === 'off') return;
     let changed = false;
     for (const r of state.reactions.rules.filter((x) => x.enabled)) {
@@ -121,6 +128,8 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
   }, 1000);
   Object.assign(commands, {
     sensorsWatch: ({ on }) => { watching = on; return sensors(); },
+    sensorsSetup: async () => { state.advanced = { state: 'starting', detail: null, configured: true, driver: true }; push(); await wait(1200); state.advanced.state = 'running'; push(); return true; },
+    sensorsRemove: () => { state.advanced = { state: 'setup', detail: null, configured: false, driver: true }; push(); return true; },
     reactionsEnabled: ({ on }) => { state.reactions.enabled = on; push(); return true; },
     reactionSave: (rule) => {
       const r = JSON.parse(JSON.stringify(rule)); if (!r.id) r.id = Math.random().toString(16).slice(2, 12);

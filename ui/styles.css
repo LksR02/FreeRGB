@@ -20,6 +20,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); overflow: hidden;
@@ -177,7 +178,7 @@ body.power-off .hero-title { background-image: linear-gradient(100deg, #fff, #8d
 .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
 .zone-card { --c: #7c6cff; padding: 18px; cursor: pointer; overflow: hidden; transition: transform .35s var(--spring), border-color .3s; }
 .zone-card:hover { transform: translateY(-4px); border-color: color-mix(in srgb, var(--c) 50%, transparent); }
-.zone-card .glow { position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; border-radius: 50%; background: var(--c); filter: blur(40px); opacity: calc(.15 + var(--b, 1) * .45); transition: opacity .8s, background .8s; }
+.zone-card .glow { position: absolute; right: -40px; top: -40px; width: 140px; height: 140px; border-radius: 50%; background: var(--c); filter: blur(40px); opacity: calc(.15 + var(--b, 1) * .45); transition: opacity .35s, background .35s; }
 .zone-card.breathing .glow { animation: breathe calc(var(--period, 3s)) ease-in-out infinite; }
 .zone-card.flashing .glow { animation: flash var(--period, 1s) steps(1) infinite; }
 .zone-card.dflash .glow { animation: dflash var(--period, 1.4s) linear infinite; }
@@ -191,7 +192,7 @@ body.power-off .hero-title { background-image: linear-gradient(100deg, #fff, #8d
 .zone-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zone-port { color: var(--muted); font-size: 12px; }
 .zone-bottom { position: relative; display: flex; align-items: center; justify-content: space-between; margin-top: 18px; color: var(--muted); font-size: 12.5px; }
-.zone-swatch { width: 26px; height: 26px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px rgba(255,255,255,.08), 0 0 18px var(--c); transition: all .8s; }
+.zone-swatch { width: 26px; height: 26px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px rgba(255,255,255,.08), 0 0 18px var(--c); transition: all .35s; }
 .zone-card.off .zone-swatch { box-shadow: 0 0 0 3px rgba(255,255,255,.05); filter: brightness(.3) saturate(.3); }
 .meter { position: relative; height: 5px; border-radius: 9px; background: rgba(255,255,255,.08); margin-top: 12px; overflow: hidden; }
 .meter i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--c) 60%, #000), var(--c)); box-shadow: 0 0 10px var(--c); transition: width .8s var(--ease); }
@@ -435,7 +436,7 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
 .sensor-value b { font: 750 30px/1 var(--display); font-variant-numeric: tabular-nums; }
 .sensor-value small { color: var(--muted); font-weight: 600; }
 .sensor-bar { height: 5px; border-radius: 9px; background: rgba(255,255,255,.08); overflow: hidden; }
-.sensor-bar i { display: block; height: 100%; width: calc(var(--t) * 100%); background: var(--heat); box-shadow: 0 0 10px var(--heat); border-radius: inherit; transition: width .9s var(--ease), background .8s; }
+.sensor-bar i { display: block; height: 100%; width: calc(var(--t) * 100%); background: var(--heat); box-shadow: 0 0 10px var(--heat); border-radius: inherit; transition: width .3s linear, background .3s; }
 .sensor-src { margin-top: 8px; font-size: 11px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sensor.na { opacity: .62; } .sensor.na .sensor-src { color: #ffcc80; white-space: normal; }
 .preset-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -452,7 +453,7 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
 .rule-name { flex: 0 1 260px; min-width: 120px; background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 6px 8px; font: 700 16px var(--display); outline: none; }
 .rule-name:hover, .rule-name:focus { border-color: var(--stroke-strong); background: rgba(0,0,0,.2); }
 .rule-live { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 12.5px; }
-.rule-live i { width: 16px; height: 16px; border-radius: 50%; background: var(--c, #333); box-shadow: 0 0 12px var(--c, transparent); flex: none; transition: background .6s, box-shadow .6s; }
+.rule-live i { width: 16px; height: 16px; border-radius: 50%; background: var(--c, #333); box-shadow: 0 0 12px var(--c, transparent); flex: none; transition: background .25s, box-shadow .25s; }
 .rule-live span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .rule-live b { color: var(--text); font-variant-numeric: tabular-nums; }
 .rule-live.na i { background: #333; box-shadow: none; } .rule-live.na span { color: #ffcc80; }
 .icon-btn.small { width: 34px; height: 34px; } .icon-btn.danger { color: var(--bad); } .icon-btn.small:hover { transform: none; }
@@ -476,7 +477,7 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
 .cpick.add { width: 34px; } .cpick.add svg { width: 34px; height: 34px; padding: 8px; border-radius: 50%; border: 1px dashed var(--stroke-strong); color: var(--muted); }
 .gbar { position: relative; flex: 1; height: 26px; border-radius: 13px; background: var(--g); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 6px 24px -10px rgba(0,0,0,.8); display: flex; justify-content: space-between; align-items: center; padding: 0 12px; }
 .gbar span { font-size: 11px; font-weight: 700; color: rgba(255,255,255,.85); text-shadow: 0 1px 4px rgba(0,0,0,.8); }
-.gbar .marker { position: absolute; top: -6px; bottom: -6px; width: 6px; margin-left: -3px; border-radius: 3px; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 14px var(--c, #fff); transition: left .9s var(--ease); }
+.gbar .marker { position: absolute; top: -6px; bottom: -6px; width: 6px; margin-left: -3px; border-radius: 3px; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 0 14px var(--c, #fff); transition: left .2s linear; }
 .rule-extra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
 .rule-extra .spacer { flex: 1; }
 .rule-extra input.tiny { width: 76px; padding: 6px 8px; }
@@ -485,6 +486,23 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
 .check-line input { accent-color: var(--accent); width: 16px; height: 16px; }
 .range.compact { width: 140px; height: 6px; }
 .rule-extra output { min-width: 38px; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- rhythm + advanced sensors ---------- */
+.rhythm-card { display: grid; grid-template-columns: 1.2fr 1fr; gap: 28px; padding: 18px 22px; margin-top: 14px; }
+.rhythm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.rhythm-head h4 { margin: 0; font: 650 15px var(--display); }
+.rhythm-head output { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.rate-seg { grid-template-columns: repeat(7, 1fr); margin: 0; }
+.rate-seg button { padding: 8px 0; font-variant-numeric: tabular-nums; }
+.range-labels { display: flex; justify-content: space-between; margin-top: 8px; font-size: 11.5px; color: var(--faint); }
+#smoothRange { margin-top: 8px; }
+.adv-card { display: flex; align-items: center; gap: 16px; padding: 14px 18px; margin-top: 14px; }
+.adv-card .adv-icon { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; background: color-mix(in srgb, #ffb547 22%, transparent); color: #ffcc80; flex: none; }
+.adv-card.ok .adv-icon { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); }
+.adv-card.err .adv-icon { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+.adv-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.adv-text span { color: var(--muted); font-size: 12.5px; }
+.adv-card .link { font-size: 12.5px; }
 
 @media (max-width: 1240px) {
   .studio { grid-template-columns: 1fr 1fr; }
@@ -498,6 +516,6 @@ body.reactive .react-pulse i { animation: ping 2.4s var(--ease) infinite; }
   .hero { grid-template-columns: 1fr; justify-items: center; text-align: center; }
   .hero-actions, .hero-meta { justify-content: center; }
   .settings-grid, .widgets-bottom { grid-template-columns: 1fr; }
-  .rule-grid { grid-template-columns: 1fr; } .react-hero { flex-wrap: wrap; }
+  .rule-grid, .rhythm-card { grid-template-columns: 1fr; } .react-hero { flex-wrap: wrap; }
 }
 body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }

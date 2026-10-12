@@ -235,7 +235,7 @@ namespace LumeRgb
             foreach (var name in new[] { "LEIA-ME.txt", "ATRIBUICOES.txt", "COMPILAR.bat" })
                 if (File.Exists(Path.Combine(root, name))) File.Copy(Path.Combine(root, name), Path.Combine(stage, name), true);
             if (File.Exists(Path.Combine(root, "LICENSE-GPL-2.0.txt"))) File.Copy(Path.Combine(root, "LICENSE-GPL-2.0.txt"), Path.Combine(stage, "LICENSE"), true);
-            if (File.Exists(Path.Combine(root, "lib", "WebView2-LICENSE.txt"))) File.Copy(Path.Combine(root, "lib", "WebView2-LICENSE.txt"), Path.Combine(stage, "WebView2-LICENSE.txt"), true);
+            foreach (var notice in Directory.GetFiles(Path.Combine(root, "lib"), "*.txt")) File.Copy(notice, Path.Combine(stage, Path.GetFileName(notice)), true);
         }
         static void CopyTree(string from, string to)
         {

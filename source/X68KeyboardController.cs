@@ -161,6 +161,22 @@ namespace LumeRgb
                 catch { Disconnect(); throw; }
             }
         }
+        // Fast path for reactive lighting: one SET, no read-back wait (the service re-reads periodically).
+        public void ApplyFast(ZoneSetting setting)
+        {
+            lock (gate)
+            {
+                RequireConnected(); ValidateSetting(setting); LastWriteVerified = false;
+                try
+                {
+                    if (latest == null) latest = ReadReport();
+                    byte[] next = BuildReport(latest, setting);
+                    transport.SetFeature(next);
+                    for (int i = 2; i <= 8; i++) latest[i] = next[i];
+                }
+                catch { Disconnect(); throw; }
+            }
+        }
         internal static bool LightingFieldsEqual(byte[] expected, byte[] actual)
         {
             if (expected == null || actual == null || expected.Length != ReportLength || actual.Length != ReportLength) return false;

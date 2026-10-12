@@ -17,7 +17,7 @@ namespace LumeRgb
 {
     static class Program
     {
-        public const string Version = "3.1";
+        public const string Version = "3.2";
         static readonly string[] Commands = { "show", "toggle", "on", "off" };
         public static string EventName(string command) { return "Local\\LumeRGBStandalone." + command; }
 
@@ -47,6 +47,10 @@ namespace LumeRgb
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         static int Start(string[] args)
         {
+            // Elevated helpers (advanced sensors): no window, no single-instance lock.
+            if (args.Contains("--sensor-host")) return SensorHostProgram.Run();
+            if (args.Contains("--setup-sensors")) return SensorSetup.Run(false);
+            if (args.Contains("--remove-sensors")) return SensorSetup.Run(true);
             string command = args.Contains("--toggle") ? "toggle" : args.Contains("--on") ? "on" : args.Contains("--off") ? "off" : "show";
             bool background = args.Contains("--background");
             // After a self-update the new exe waits for the old process to release the single-instance lock.
@@ -79,6 +83,7 @@ namespace LumeRgb
         public readonly LumeService Service;
         public readonly WidgetManager Widgets;
         public readonly SensorHub Sensors;
+        public readonly AdvancedSensors Advanced;
         public readonly ReactiveEngine Reactions;
         public readonly Updater Updater;
         readonly System.Windows.Forms.Timer updateTimer = new System.Windows.Forms.Timer { Interval = 8000 };
@@ -102,7 +107,11 @@ namespace LumeRgb
             Service = LumeService.CreateDefault();
             Widgets = new WidgetManager(this);
             Sensors = new SensorHub();
+            Advanced = new AdvancedSensors();
+            Sensors.Advanced = Advanced;
+            Advanced.Changed += delegate { Post(OnStateChanged); };
             Reactions = new ReactiveEngine(Service, Sensors);
+            ApplyReactiveRhythm();
             Updater = Updater.CreateDefault();
             Updater.CleanupOldFiles();
             Updater.Changed += delegate { Post(OnStateChanged); };
@@ -127,6 +136,13 @@ namespace LumeRgb
             Run(Service.Scan().ContinueWith(t => { if (command != "show") ui.Post(_ => Execute(command), null); }));
             if (!background && command == "show") ShowWindow();
             if (updated) tray.ShowBalloonTip(4000, "Lume RGB atualizado", "Versão " + Updater.Short(Updater.Installed) + " instalada a partir do GitHub.", ToolTipIcon.Info);
+        }
+
+        // Sensors are sampled up to 20x per second; lights can be written up to 30x per second and glide in between.
+        public void ApplyReactiveRhythm()
+        {
+            Sensors.IntervalMs = 1000 / Math.Min(20, Math.Max(1, Service.Settings.RateOrDefault));
+            Reactions.Refresh();
         }
 
         // ---------- updates ----------
@@ -240,7 +256,7 @@ namespace LumeRgb
             Widgets.CloseAll();
             if (window != null && !window.IsDisposed) window.Close();
             host.DestroyHandle();
-            Reactions.Dispose(); Sensors.Dispose();
+            Reactions.Dispose(); Sensors.Dispose(); Advanced.Dispose();
             Service.Dispose();
             ExitThread();
         }

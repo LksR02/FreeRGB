@@ -1,4 +1,26 @@
-﻿LUME RGB 3.1 — REAÇÕES + ATUALIZAÇÃO AUTOMÁTICA
+﻿LUME RGB 3.2 — REAÇÕES RÁPIDAS + SENSORES EMBUTIDOS
+
+NOVO NA 3.2
+• Reações muito mais rápidas e fluidas: as luzes são atualizadas de 1 a 30
+  vezes por segundo (padrão 10) e deslizam suavemente entre uma leitura e
+  outra. Ajuste em Reações > "Atualizações por segundo" e "Transição entre as
+  cores" (de instantânea a bem lenta). A página mostra quantas atualizações
+  por segundo estão sendo enviadas. O teclado acompanha até 30/s; a placa MSI
+  é limitada a 15/s para não sobrecarregar o controlador.
+  Nesse modo o Lume escreve sem esperar a confirmação de cada mudança e relê o
+  estado real dos dispositivos a cada 3 segundos.
+• LibreHardwareMonitor embutido: temperatura e watts reais da CPU, temperatura
+  da placa-mãe e rotação da ventoinha da CPU, sem instalar nem abrir outro
+  programa. Em Reações > "Ativar sensores avançados" o Windows pede permissão
+  de administrador UMA vez: o Lume instala o driver oficial PawnIO (se faltar;
+  baixado do GitHub com assinatura digital verificada) e registra a tarefa
+  "LumeRGB\Sensores" no Agendador de Tarefas. Depois disso o processo de
+  sensores inicia sozinho, sem novos avisos, só quando uma reação ou a página
+  precisa dele, e fecha junto com o Lume. "Desativar" remove a tarefa (o
+  driver PawnIO pode ser removido em Configurações > Aplicativos).
+  Se você mover a pasta do Lume, ative os sensores de novo.
+
+LUME RGB 3.1 — REAÇÕES + ATUALIZAÇÃO AUTOMÁTICA
 
 NOVO NA 3.1
 • Reações (nova página): ligue qualquer sensor do PC a qualquer zona.
@@ -10,9 +32,7 @@ NOVO NA 3.1
     teclado, GPU quente nas ventoinhas, Watts no gabinete, RAM no brilho.
     Ao desligar as Reações, as zonas voltam às cores de antes.
     Fontes: Windows (CPU, RAM, GPU), driver NVIDIA (temperatura, uso e watts
-    da GPU) e, para temperatura/watts exatos da CPU, o LibreHardwareMonitor
-    aberto (ele publica os sensores via WMI). Sem ele, a temperatura da CPU
-    vem do ACPI (aproximada) e o consumo da CPU fica indisponível.
+    da GPU) e, desde a 3.2, o LibreHardwareMonitor embutido (CPU, placa-mãe).
 • Atualização automática: sempre que abre (e a cada 12 h), o Lume consulta o
   branch main do GitHub (LksR02/FreeRGB). Se houver mudança no app, baixa o
   código, compila com o compilador do próprio Windows e instala. Com a janela

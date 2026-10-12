@@ -23,6 +23,14 @@ Microsoft.Web.WebView2.Core.dll, Microsoft.Web.WebView2.WinForms.dll e
 WebView2Loader.dll (SDK 1.0.4022.49) são redistribuídas conforme
 WebView2-LICENSE.txt. Copyright (C) Microsoft Corporation.
 
+Sensores avançados: LibreHardwareMonitorLib 0.9.6 (MPL-2.0,
+https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) e suas dependências
+(DiskInfoToolkit, RAMSPDToolkit-NDD, BlackSharp.Core — MPL-2.0; HidSharp — Apache 2.0;
+System.Memory, System.Buffers, System.Numerics.Vectors, System.Runtime.CompilerServices.Unsafe — MIT),
+distribuídas sem modificação. Textos das licenças em SENSORES-LICENCAS.txt.
+O driver PawnIO (https://github.com/namazso/PawnIO.Setup) não é distribuído: o instalador
+oficial é baixado somente quando você ativa os sensores avançados.
+
 Marcas e nomes dos dispositivos pertencem aos respectivos fabricantes; nenhuma
 afiliação é alegada. Este app não é uma distribuição oficial da MSI,
 ATTACK SHARK, OpenRGB ou Shader Effects Inc.

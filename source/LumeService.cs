@@ -74,6 +74,7 @@ namespace LumeRgb
         List<RgbZone> zones = new List<RgbZone>();
         List<HidDeviceInfo> devices = new List<HidDeviceInfo>();
         bool busy, statusError, invalidSettings, scannedOnce;
+        int visibleJobs; // queued or running jobs that show the busy indicator (quiet reactive writes excluded)
         string busyText = "", status = "Iniciando…";
         bool? desiredPower; Task powerTask; bool powerQueued;
         int version;
@@ -104,13 +105,20 @@ namespace LumeRgb
             {
                 Action job = null;
                 lock (gate) { if (jobs.Count > 0) job = jobs.Dequeue(); }
-                if (job == null) { signal.WaitOne(500); continue; }
+                if (job == null)
+                {
+                    signal.WaitOne(60);
+                    bool flush; lock (gate) flush = raisePending && (DateTime.UtcNow - lastRaise).TotalMilliseconds >= RaiseInterval;
+                    if (flush) Raise();
+                    continue;
+                }
                 job();
             }
         }
         Task Enqueue(string text, Action work, Func<string> success) { return Enqueue(text, work, success, false); }
         // quiet jobs (reactive lighting) run without the busy indicator so the UI does not flicker every second.
-        Task Enqueue(string text, Action work, Func<string> success, bool quiet)
+        Task Enqueue(string text, Action work, Func<string> success, bool quiet) { return Enqueue(text, work, success, quiet, false); }
+        Task Enqueue(string text, Action work, Func<string> success, bool quiet, bool selfRaise)
         {
             var completion = new TaskCompletionSource<object>();
             Action job = delegate
@@ -121,14 +129,15 @@ namespace LumeRgb
                 catch (Exception e) { failure = e; }
                 lock (gate)
                 {
-                    busy = jobs.Count > 0;
+                    if (!quiet) visibleJobs--;
+                    busy = visibleJobs > 0;
                     if (failure != null) { status = Friendly(failure); statusError = true; }
                     else if (message != null) { status = message; statusError = false; }
                 }
-                Raise();
+                if (!selfRaise || failure != null) Raise();
                 if (failure != null) completion.TrySetException(failure); else completion.TrySetResult(null);
             };
-            lock (gate) { jobs.Enqueue(job); }
+            lock (gate) { jobs.Enqueue(job); if (!quiet) visibleJobs++; }
             signal.Set();
             return completion.Task;
         }
@@ -137,9 +146,20 @@ namespace LumeRgb
             while (e is AggregateException && e.InnerException != null) e = e.InnerException;
             return e.Message;
         }
+        // Fast reactive writes can happen 30x per second; the UI is told at most ~8x per second.
+        const int RaiseInterval = 120;
+        DateTime lastRaise = DateTime.MinValue; bool raisePending;
+        void RaiseThrottled()
+        {
+            lock (gate)
+            {
+                if ((DateTime.UtcNow - lastRaise).TotalMilliseconds < RaiseInterval) { raisePending = true; return; }
+            }
+            Raise();
+        }
         void Raise()
         {
-            lock (gate) version++;
+            lock (gate) { version++; lastRaise = DateTime.UtcNow; raisePending = false; }
             var handler = Changed; if (handler != null) try { handler(this, EventArgs.Empty); } catch { }
         }
 
@@ -366,20 +386,25 @@ namespace LumeRgb
         }
 
         // ---------- reactive lighting ----------
-        List<ZoneSetting> pendingReactive; bool reactiveQueued; DateTime reactiveFailedAt = DateTime.MinValue;
+        readonly Dictionary<string, ZoneSetting> pendingReactive = new Dictionary<string, ZoneSetting>(); bool reactiveQueued; DateTime reactiveFailedAt = DateTime.MinValue;
         public DateTime LastReactiveFailure { get { lock (gate) return reactiveFailedAt; } }
         // Coalesced: while a reactive write is waiting, newer targets replace it instead of piling up.
         public void ApplyReactive(List<ZoneSetting> settings)
         {
             if (settings == null || settings.Count == 0) return;
-            lock (gate) { pendingReactive = settings; if (reactiveQueued) return; reactiveQueued = true; }
+            lock (gate)
+            {
+                // Merge per zone: a newer target replaces an older one, other zones keep their pending change.
+                foreach (var t in settings) pendingReactive[t.Key] = t;
+                if (reactiveQueued) return; reactiveQueued = true;
+            }
             Enqueue(null, delegate
             {
                 List<ZoneSetting> list;
                 lock (gate)
                 {
-                    list = pendingReactive; pendingReactive = null; reactiveQueued = false;
-                    if (list == null || desiredPower.HasValue || backend == null || !backend.IsConnected || PowerOf(zones) == "off") return;
+                    list = pendingReactive.Values.ToList(); pendingReactive.Clear(); reactiveQueued = false;
+                    if (list.Count == 0 || desiredPower.HasValue || backend == null || !backend.IsConnected || PowerOf(zones) == "off") return;
                     list = list.Where(t => zones.Any(z => z.Key == t.Key)).ToList();
                     if (list.Count == 0) return;
                 }
@@ -388,7 +413,7 @@ namespace LumeRgb
                 foreach (var t in list) t.Effect = Normalize(t.Key, t.Effect);
                 try
                 {
-                    try { backend.Apply(list); }
+                    try { backend.ApplyFast(list); }
                     catch (NotSupportedException)
                     {
                         // Board still in a synchronized mode: send all four headers once, keeping the others as they are.
@@ -396,13 +421,27 @@ namespace LumeRgb
                         List<RgbZone> current; lock (gate) current = zones.Select(Copy).ToList();
                         foreach (var z in current.Where(c => BoardKeys.Contains(c.Key) && !list.Any(t => t.Key == c.Key)))
                             list.Add(new ZoneSetting { Key = z.Key, Color = z.CurrentColor, BrightnessPercent = z.CurrentBrightnessPercent, Effect = Normalize(z.Key, z.Effect), SpeedPercent = z.CurrentSpeedPercent });
-                        backend.Apply(list);
+                        backend.ApplyFast(list);
                     }
                 }
                 catch { lock (gate) reactiveFailedAt = DateTime.UtcNow; TryRefresh(); throw; }
-                Refresh();
-            }, null, true);
+                lock (gate)
+                {
+                    reactiveWrites++;
+                    // No read-back on the fast path: mirror what was sent, then confirm with a real read now and then.
+                    foreach (var t in list)
+                    {
+                        var z = zones.FirstOrDefault(x => x.Key == t.Key); if (z == null) continue;
+                        z.CurrentColor = t.Color; z.CurrentBrightnessPercent = t.BrightnessPercent; z.Effect = t.Effect; z.CurrentSpeedPercent = t.SpeedPercent;
+                    }
+                }
+                if ((DateTime.UtcNow - lastResync).TotalSeconds >= 3) { lastResync = DateTime.UtcNow; Refresh(); }
+                RaiseThrottled();
+            }, null, true, true);
         }
+        DateTime lastResync = DateTime.UtcNow; int reactiveWrites;
+        public int ReactiveWrites { get { lock (gate) return reactiveWrites; } }
+
         // Completes once every job queued before it has run (jobs are strictly FIFO).
         public Task Idle() { return Enqueue(null, delegate { }, null, true); }
         public List<ZoneSetting> CurrentSettings()

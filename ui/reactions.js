@@ -1,16 +1,17 @@
 // "Reações" page: live PC sensors and the rules that link them to lighting zones.
-const SENSOR_ICONS = { cpu_load: 'cpu', ram_load: 'memory', gpu_load: 'gpu', gpu_temp: 'thermo', cpu_temp: 'thermo', gpu_power: 'bolt', cpu_power: 'bolt', total_power: 'bolt' };
-const SENSOR_NAMES = { cpu_load: 'Uso da CPU', ram_load: 'Uso da memória RAM', gpu_load: 'Uso da GPU', gpu_temp: 'Temperatura da GPU', gpu_power: 'Consumo da GPU', cpu_temp: 'Temperatura da CPU', cpu_power: 'Consumo da CPU', total_power: 'Consumo CPU + GPU' };
-const SENSOR_UNITS = { cpu_load: '%', ram_load: '%', gpu_load: '%', gpu_temp: '°C', gpu_power: 'W', cpu_temp: '°C', cpu_power: 'W', total_power: 'W' };
-const RANGES = { cpu_load: [0, 100], ram_load: [0, 100], gpu_load: [0, 100], gpu_temp: [35, 85], gpu_power: [20, 250], cpu_temp: [35, 90], cpu_power: [15, 140], total_power: [50, 400] };
+const SENSOR_ICONS = { cpu_load: 'cpu', ram_load: 'memory', gpu_load: 'gpu', gpu_temp: 'thermo', cpu_temp: 'thermo', gpu_power: 'bolt', cpu_power: 'bolt', total_power: 'bolt', board_temp: 'thermo', cpu_fan: 'fan' };
+const SENSOR_NAMES = { cpu_load: 'Uso da CPU', ram_load: 'Uso da memória RAM', gpu_load: 'Uso da GPU', gpu_temp: 'Temperatura da GPU', gpu_power: 'Consumo da GPU', cpu_temp: 'Temperatura da CPU', cpu_power: 'Consumo da CPU', total_power: 'Consumo CPU + GPU', board_temp: 'Temperatura da placa-mãe', cpu_fan: 'Ventoinha da CPU' };
+const SENSOR_UNITS = { cpu_load: '%', ram_load: '%', gpu_load: '%', gpu_temp: '°C', gpu_power: 'W', cpu_temp: '°C', cpu_power: 'W', total_power: 'W', board_temp: '°C', cpu_fan: 'RPM' };
+const RANGES = { cpu_load: [0, 100], ram_load: [0, 100], gpu_load: [0, 100], gpu_temp: [35, 85], gpu_power: [20, 250], cpu_temp: [35, 90], cpu_power: [15, 140], total_power: [50, 400], board_temp: [25, 60], cpu_fan: [500, 2500] };
 export const sensorName = (id) => SENSOR_NAMES[id] || id;
-const short = { cpu_load: 'CPU', ram_load: 'RAM', gpu_load: 'GPU', gpu_temp: 'GPU °C', gpu_power: 'GPU W', cpu_temp: 'CPU °C', cpu_power: 'CPU W', total_power: 'Watts' };
+const short = { cpu_load: 'CPU', ram_load: 'RAM', gpu_load: 'GPU', gpu_temp: 'GPU °C', gpu_power: 'GPU W', cpu_temp: 'CPU °C', cpu_power: 'CPU W', total_power: 'Watts', board_temp: 'Placa °C', cpu_fan: 'Fan' };
 export const sensorShort = (id) => short[id] || id;
 
 const PRESETS = [
   { title: 'CPU no teclado', sub: 'verde → amarelo → vermelho', rule: { sensor: 'cpu_load', zones: ['X68HE'], colorLow: '#00E676', colorMid: '#FFD600', colorHigh: '#FF1744', alertAbove: 90 } },
   { title: 'GPU quente nas ventoinhas', sub: 'azul → roxo → vermelho', rule: { sensor: 'gpu_temp', zones: ['JRAINBOW1', 'JRAINBOW2'], colorLow: '#00B0FF', colorMid: '#7C4DFF', colorHigh: '#FF1744', alertAbove: 80 } },
   { title: 'Watts no gabinete', sub: 'turquesa → magenta', rule: { sensor: 'gpu_power', zones: ['JRGB1', 'JRGB2'], colorLow: '#1DE9B6', colorMid: null, colorHigh: '#FF00E5' } },
+  { title: 'CPU quente no gabinete', sub: 'temperatura real da CPU', rule: { sensor: 'cpu_temp', zones: ['JRAINBOW2'], colorLow: '#2979FF', colorMid: '#FFAB00', colorHigh: '#FF1744', alertAbove: 85 } },
   { title: 'RAM no brilho', sub: 'a fita acende conforme a memória', rule: { sensor: 'ram_load', zones: ['JRAINBOW2'], mode: 'brightness', colorLow: '#000000', colorMid: null, colorHigh: '#7C6CFF' } },
 ];
 
@@ -29,6 +30,33 @@ export function createReactions(h) {
     return { color, brightness: rule.brightness || 100, t };
   }
   const heat = (t) => (t < 0.5 ? mix('#2BE38B', '#FFD24A', t * 2) : mix('#FFD24A', '#FF4D6D', (t - 0.5) * 2));
+
+  // ---------- rhythm ----------
+  const RATES = [1, 2, 5, 10, 15, 20, 30];
+  const tau = (s) => (s <= 0 ? 0 : 0.03 + Math.pow(s / 100, 2) * 2.5);
+  const smoothLabel = (s) => (s <= 0 ? 'Instantânea' : `${s < 35 ? 'Rápida' : s < 70 ? 'Suave' : 'Bem lenta'} · ~${tau(s).toFixed(tau(s) < 1 ? 2 : 1).replace('.', ',')} s`);
+  let rhythmTimer = 0;
+  function renderRhythm() {
+    const rate = S.prefs.reactiveRate || 10, smooth = S.prefs.reactiveSmoothing ?? 40;
+    const seg = $('#rateSeg'); if (!seg.children.length) seg.innerHTML = RATES.map((r) => `<button data-rate="${r}">${r}</button>`).join('');
+    seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.rate) === rate));
+    const range = $('#smoothRange');
+    if (document.activeElement !== range) { range.value = smooth; range.style.setProperty('--p', smooth + '%'); $('#smoothOut').textContent = smoothLabel(smooth); }
+    $('#rateHint').textContent = rate >= 20 ? 'Máximo: teclado acompanha em tempo real; a placa vai até 15/s.' : rate >= 10 ? 'Fluido para a maioria dos usos.' : 'Econômico: menos escritas USB.';
+  }
+  function renderAdvanced(adv) {
+    const card = $('#advancedCard'); if (!card || !adv) return;
+    const running = adv.state === 'running', starting = adv.state === 'starting';
+    card.className = 'glass adv-card ' + (running ? 'ok' : adv.state === 'error' ? 'err' : '');
+    $('#advTitle').textContent = running ? 'Sensores avançados ativos' : starting ? 'Iniciando sensores avançados…' : 'Sensores avançados da CPU e placa-mãe';
+    $('#advText').textContent = running ? 'LibreHardwareMonitor embutido lendo temperatura e watts da CPU, placa-mãe e ventoinha.'
+      : adv.state === 'error' ? adv.detail || 'Os sensores avançados pararam.'
+      : (adv.configured ? 'Configurados — iniciam sozinhos quando uma reação ou esta página precisa deles.' : 'Temperatura e watts reais da CPU, temperatura da placa-mãe e ventoinha, lidos pelo LibreHardwareMonitor embutido no Lume. Uma autorização de administrador ' + (adv.driver ? 'registra o processo de sensores.' : 'instala o driver oficial PawnIO e registra o processo de sensores.'));
+    const btn = $('#advAction');
+    btn.hidden = running || starting || (adv.configured && adv.state !== 'error');
+    btn.querySelector('span').textContent = adv.state === 'error' && adv.configured ? 'Reconfigurar' : 'Ativar sensores avançados';
+    $('#advRemove').hidden = !adv.configured;
+  }
 
   // ---------- sensors ----------
   function renderSensors() {
@@ -154,6 +182,17 @@ export function createReactions(h) {
   }
 
   function bind() {
+    $('#rateSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-rate]'); if (b) call('prefs', { reactiveRate: Number(b.dataset.rate) }).catch(() => {}); });
+    $('#smoothRange').addEventListener('input', (e) => {
+      const v = Number(e.target.value); e.target.style.setProperty('--p', v + '%'); $('#smoothOut').textContent = smoothLabel(v);
+      clearTimeout(rhythmTimer); rhythmTimer = setTimeout(() => call('prefs', { reactiveSmoothing: v }).catch(() => {}), 200);
+    });
+    $('#advAction').addEventListener('click', async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; btn.querySelector('span').textContent = 'Aguardando autorização…';
+      try { await call('sensorsSetup', {}, 'Sensores avançados ativados. As leituras começam em instantes.'); } catch { /* toast shown */ }
+      btn.disabled = false;
+    });
+    $('#advRemove').addEventListener('click', () => call('sensorsRemove', {}, 'Sensores avançados desativados.').catch(() => {}));
     $('#reactionsToggle').addEventListener('change', (e) => call('reactionsEnabled', { on: e.target.checked }, e.target.checked ? 'Reações ativadas.' : 'Reações desligadas. As zonas voltaram às cores anteriores.').catch(() => {}));
     $('#presetRow').addEventListener('click', (e) => {
       const b = e.target.closest('[data-preset]'); if (!b) return;
@@ -204,9 +243,13 @@ export function createReactions(h) {
       const row = $('#presetRow'); if (!row.children.length) row.innerHTML = PRESETS.map((p, i) => `<button class="preset" data-preset="${i}" style="--a:${p.rule.colorLow === '#000000' ? p.rule.colorHigh : p.rule.colorLow};--b:${p.rule.colorMid || p.rule.colorHigh};--c:${p.rule.colorHigh}">
         <span class="preset-g"></span><b>${p.title}</b><small>${sensorShort(p.rule.sensor)} · ${p.sub}</small></button>`).join('')
         + `<button class="preset blank" data-preset="blank">${icon('plus')}<b>Criar do zero</b><small>qualquer sensor, qualquer zona</small></button>`;
-      renderRules(false);
+      renderRules(false); renderRhythm(); renderAdvanced(S.advanced);
     },
-    sensors(list) { for (const r of list || []) sensors[r.id] = r; renderSensors(); updateLive(); },
+    sensors(list, extra) {
+      for (const r of list || []) sensors[r.id] = r; renderSensors(); updateLive();
+      if (extra && extra.engine) $('#writesOut').textContent = extra.engine.active ? `${Number(extra.engine.writesPerSecond).toFixed(1).replace('.', ',')} atualizações/s agora` : 'Reações paradas';
+      if (extra && extra.advanced && S) renderAdvanced({ ...S.advanced, ...extra.advanced });
+    },
     async visible(on) {
       if (on === watching) return; watching = on;
       try { const list = await call('sensorsWatch', { on }); if (on) this.sensors(list); } catch { /* ignore */ }

@@ -71,7 +71,7 @@ class ReactiveTests
         var service = new LumeService(Path.Combine(folder, "settings.json"), factory, () => new List<HidDeviceInfo>(), () => null);
         service.Scan().Wait();
         var sensors = new FakeSensors();
-        var engine = new ReactiveEngine(service, sensors);
+        var engine = new ReactiveEngine(service, sensors, false);
         Check(!sensors.Wanted.Contains("rules"), "sensors idle while there are no rules");
         var before = Zone(service, "X68HE").CurrentColor;
 
@@ -81,11 +81,11 @@ class ReactiveTests
         Check(sensors.Wanted.Contains("rules"), "sensors sampled once a rule is active");
         Check(service.Settings.Reactions.Count == 1, "rule persisted and validated");
 
-        sensors.Values["cpu_load"] = 0; sensors.Fire(); Settle(service);
+        sensors.Values["cpu_load"] = 0; engine.Step(1); Settle(service);
         var k = Zone(service, "X68HE"); Check(k.CurrentColor.G == 255 && k.CurrentColor.R == 0 && k.Effect == "Static", "CPU 0% -> keyboard green");
         int writes = hid.Writes;
-        sensors.Fire(); Settle(service); Check(hid.Writes == writes, "unchanged value sends nothing");
-        for (int i = 0; i < 12; i++) { sensors.Values["cpu_load"] = 100; sensors.Fire(); Settle(service); }
+        engine.Step(1); Settle(service); Check(hid.Writes == writes, "unchanged value sends nothing");
+        for (int i = 0; i < 12; i++) { sensors.Values["cpu_load"] = 100; engine.Step(1); Settle(service); }
         k = Zone(service, "X68HE"); Check(k.CurrentColor.R == 255 && k.CurrentColor.G < 10, "CPU 100% -> keyboard red (after smoothing)");
         Check(k.Effect == "Breathing", "alert above 90% makes the keyboard breathe");
         Check(hid.Writes == writes, "keyboard-only rule never writes to the board");
@@ -96,26 +96,45 @@ class ReactiveTests
         service.Mutate(s => s.Reactions.Add(new ReactiveRule { Id = "r2", Name = "GPU nas ventoinhas", Sensor = "gpu_temp", Keys = new List<string> { "JRAINBOW1" },
             Min = 40, Max = 80, Mode = "brightness", ColorLow = "#000000", ColorHigh = "#3366FF", Brightness = 100, Enabled = true }));
         engine.Refresh();
-        sensors.Values["gpu_temp"] = 60; for (int i = 0; i < 12; i++) { sensors.Fire(); Settle(service); }
+        sensors.Values["gpu_temp"] = 60; for (int i = 0; i < 12; i++) { engine.Step(1); Settle(service); }
         var fan = Zone(service, "JRAINBOW1"); Check(fan.CurrentColor.B == 0xFF && fan.CurrentBrightnessPercent == 50, "brightness mode: 60°C in 40–80 -> 50%");
 
         // Missing sensor: zone left alone
         service.Mutate(s => s.Reactions.Add(new ReactiveRule { Id = "r3", Name = "CPU W", Sensor = "cpu_power", Keys = new List<string> { "JRGB2" },
             Min = 10, Max = 100, Mode = "color", ColorLow = "#000011", ColorHigh = "#FFFFFF", Brightness = 100, Enabled = true }));
-        engine.Refresh(); var jrgb2 = Zone(service, "JRGB2").CurrentColor; sensors.Fire(); Settle(service);
+        engine.Refresh(); var jrgb2 = Zone(service, "JRGB2").CurrentColor; engine.Step(1); Settle(service);
         Check(Zone(service, "JRGB2").CurrentColor == jrgb2, "unavailable sensor leaves its zones unchanged");
 
         // Power off: engine pauses
-        service.SetPower(false).Wait(); writes = hid.Writes; sensors.Values["cpu_load"] = 0; sensors.Fire(); Settle(service);
+        service.SetPower(false).Wait(); writes = hid.Writes; sensors.Values["cpu_load"] = 0; engine.Step(1); Settle(service);
         Check(hid.Writes == writes && service.Snapshot().Power == "off", "no reactive writes while everything is off");
-        service.SetPower(true).Wait(); for (int i = 0; i < 12; i++) { sensors.Fire(); Settle(service); }
+        service.SetPower(true).Wait(); for (int i = 0; i < 12; i++) { engine.Step(1); Settle(service); }
         Check(Zone(service, "X68HE").CurrentColor.G == 255, "after Ligar the rule takes over again");
 
+        // (rhythm tests run before switching off)
         // Disabling restores what was there before reactions started
         service.Mutate(s => s.ReactionsEnabled = false); engine.Refresh(); Settle(service);
         Check(Zone(service, "X68HE").CurrentColor == before, "switching reactions off restores the previous keyboard colour");
         Check(!sensors.Wanted.Contains("rules"), "sensors released when reactions are off");
 
+        // Rhythm: fast path keeps up with many updates per second and glides between values.
+        service.Mutate(s => { s.ReactionsEnabled = true; s.ReactiveRate = 30; s.ReactiveSmoothing = 0; }); engine.Refresh();
+        int keyboardWrites = 0; int last = keys.State[6] << 16 | keys.State[7] << 8 | keys.State[8];
+        for (int i = 0; i <= 30; i++) { sensors.Values["cpu_load"] = i * 100.0 / 30; engine.Step(1 / 30.0); Settle(service); int rgb = keys.State[6] << 16 | keys.State[7] << 8 | keys.State[8]; if (rgb != last) { keyboardWrites++; last = rgb; } }
+        Check(keyboardWrites >= 25, "30 updates/s with smoothing 0: keyboard follows almost every step (" + keyboardWrites + " distinct colours)");
+        Check(Zone(service, "X68HE").CurrentColor.R == 255 && keys.State[6] == 255, "fast path state mirrors the hardware");
+        service.Mutate(s => s.ReactiveSmoothing = 100); engine.Refresh();
+        sensors.Values["cpu_load"] = 0; engine.Step(1 / 30.0); engine.Step(1 / 30.0); Settle(service);
+        var glide = Zone(service, "X68HE").CurrentColor;
+        Check(glide.R > 200, "smoothing 100: a sudden drop fades instead of jumping (R=" + glide.R + ")");
+        for (int i = 0; i < 600; i++) engine.Step(1 / 30.0); Settle(service);
+        var arrived = Zone(service, "X68HE"); Check(arrived.CurrentColor.G == 255 && arrived.CurrentColor.R < 10, "…and arrives at the new colour after ~20 s of 30 Hz steps");
+        Check(ReactiveEngine.TimeConstant(0) == 0 && ReactiveEngine.TimeConstant(100) > 2, "smoothing maps to a time constant");
+        service.Mutate(s => s.ReactiveSmoothing = 0); engine.Refresh();
+        int boardBefore = hid.Writes; var watch = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < 60; i++) { sensors.Values["gpu_temp"] = 40 + (i % 2) * 30; engine.Step(1 / 30.0); Settle(service); Thread.Sleep(5); }
+        double boardPerSecond = (hid.Writes - boardBefore) / 2.0 / watch.Elapsed.TotalSeconds;
+        Check(hid.Writes > boardBefore && boardPerSecond <= ReactiveEngine.BoardMaxPerSecond + 1, "board follows a flickering sensor but never above its pace (" + boardPerSecond.ToString("0.0") + "/s)");
         bool rejected = false; try { service.Mutate(s => s.Reactions.Add(new ReactiveRule { Id = "bad", Name = "x", Sensor = "cpu_load", Keys = new List<string>(), Min = 5, Max = 5, Mode = "color", ColorLow = "#000000", ColorHigh = "#FFFFFF" })); } catch { rejected = true; }
         Check(rejected, "rule with empty range rejected");
         engine.Dispose(); service.Dispose();

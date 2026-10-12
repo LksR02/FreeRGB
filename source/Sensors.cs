@@ -22,6 +22,16 @@ namespace LumeRgb
         public SensorReading Copy() { return (SensorReading)MemberwiseClone(); }
     }
 
+    // Elevated LibreHardwareMonitorLib readings (see HardwareMonitor.cs); optional.
+    public interface IAdvancedSource
+    {
+        void Ensure(int intervalMs);
+        bool TryGet(string id, out double value);
+        string State { get; }
+        string Detail { get; }
+        void Stop();
+    }
+
     public interface ISensorSource
     {
         event EventHandler Updated;
@@ -31,14 +41,19 @@ namespace LumeRgb
 
     public sealed class SensorHub : ISensorSource, IDisposable
     {
-        public static readonly string[] Ids = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power" };
+        public static readonly string[] Ids = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan" };
+        public IAdvancedSource Advanced;
         readonly object gate = new object();
         readonly Dictionary<string, SensorReading> readings = new Dictionary<string, SensorReading>();
         readonly HashSet<string> demand = new HashSet<string>();
         readonly AutoResetEvent wake = new AutoResetEvent(false);
         readonly Thread thread;
         volatile bool disposed;
+        volatile int interval = 1000;
         public event EventHandler Updated;
+        // Sampling period; fast sources (CPU, RAM, NVIDIA) follow it, slow ones keep their own pace.
+        public int IntervalMs { get { return interval; } set { interval = Math.Max(50, Math.Min(2000, value)); wake.Set(); } }
+        DateTime wmiAt, gpuCounterAt, acpiAt; double acpiLast = double.NaN, counterLast = double.NaN;
 
         // Sources
         long lastIdle, lastKernel, lastUser;
@@ -58,6 +73,8 @@ namespace LumeRgb
             Define("cpu_temp", "Temperatura da CPU", "°C", 35, 90);
             Define("cpu_power", "Consumo da CPU", "W", 15, 140);
             Define("total_power", "Consumo CPU + GPU", "W", 50, 400);
+            Define("board_temp", "Temperatura da placa-mãe", "°C", 25, 60);
+            Define("cpu_fan", "Ventoinha da CPU", "RPM", 500, 2500);
             thread = new Thread(Run) { IsBackground = true, Name = "Lume sensors", Priority = ThreadPriority.BelowNormal };
             thread.Start();
         }
@@ -71,7 +88,8 @@ namespace LumeRgb
             {
                 case "cpu_load": return "Uso da CPU"; case "ram_load": return "Uso da memória RAM"; case "gpu_load": return "Uso da GPU";
                 case "gpu_temp": return "Temperatura da GPU"; case "gpu_power": return "Consumo da GPU"; case "cpu_temp": return "Temperatura da CPU";
-                case "cpu_power": return "Consumo da CPU"; case "total_power": return "Consumo CPU + GPU"; default: return id;
+                case "cpu_power": return "Consumo da CPU"; case "total_power": return "Consumo CPU + GPU";
+                case "board_temp": return "Temperatura da placa-mãe"; case "cpu_fan": return "Ventoinha da CPU"; default: return id;
             }
         }
 
@@ -86,15 +104,22 @@ namespace LumeRgb
 
         void Run()
         {
+            DateTime idleSince = DateTime.UtcNow;
             while (!disposed)
             {
                 bool active; lock (gate) active = demand.Count > 0;
-                if (!active) { wake.WaitOne(2000); continue; }
+                if (!active)
+                {
+                    // Nobody needs sensors for a while: let the elevated helper exit too.
+                    if (Advanced != null && (DateTime.UtcNow - idleSince).TotalSeconds > 30) Advanced.Stop();
+                    wake.WaitOne(2000); continue;
+                }
+                idleSince = DateTime.UtcNow;
                 var watch = Stopwatch.StartNew();
                 try { Sample(); } catch (Exception e) { AppLog.Write("Sensores: " + e); }
                 var handler = Updated; if (handler != null) try { handler(this, EventArgs.Empty); } catch { }
-                int rest = 1000 - (int)watch.ElapsedMilliseconds;
-                wake.WaitOne(Math.Max(200, rest));
+                int rest = interval - (int)watch.ElapsedMilliseconds;
+                wake.WaitOne(Math.Max(20, rest));
             }
         }
         void Set(string id, bool ok, double value, string source, string reason)
@@ -120,7 +145,8 @@ namespace LumeRgb
             var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf(typeof(MemoryStatus)) };
             if (GlobalMemoryStatusEx(ref memory)) Set("ram_load", true, memory.Load, "Windows", null);
 
-            if (tick % 2 == 1) ReadWmi();
+            // LibreHardwareMonitor refreshes about once per second; asking more often only costs CPU.
+            if (DateTime.UtcNow >= wmiAt) { wmiAt = DateTime.UtcNow.AddMilliseconds(900); ReadWmi(); }
             ReadGpu();
             ReadCpuThermal();
 
@@ -144,7 +170,8 @@ namespace LumeRgb
                 return;
             }
             // Other GPUs: Windows "GPU Engine" counters for load, LibreHardwareMonitor for the rest.
-            double load = CounterGpuLoad();
+            if (DateTime.UtcNow >= gpuCounterAt) { gpuCounterAt = DateTime.UtcNow.AddMilliseconds(500); counterLast = CounterGpuLoad(); }
+            double load = counterLast;
             if (!double.IsNaN(load)) Set("gpu_load", true, load, "Windows", null);
             else Set("gpu_load", !double.IsNaN(wmiGpuLoad), wmiGpuLoad, "LibreHardwareMonitor", "Contadores de GPU do Windows indisponíveis.");
             string need = "Sem driver NVIDIA: abra o LibreHardwareMonitor (com WMI) para esta leitura.";
@@ -172,17 +199,39 @@ namespace LumeRgb
             catch (Exception) { gpuCounters = null; gpuCountersAt = DateTime.UtcNow.AddSeconds(30); return double.NaN; }
         }
 
+        const string Embedded = "LibreHardwareMonitor (embutido)";
+        string AdvancedReason()
+        {
+            if (Advanced == null) return "Sensores avançados indisponíveis.";
+            switch (Advanced.State)
+            {
+                case "setup": return "Ative os sensores avançados no topo da página Reações (pede permissão de administrador uma única vez).";
+                case "starting": return "Iniciando os sensores avançados…";
+                case "running": return "Este PC não informou esta leitura.";
+                default: return Advanced.Detail ?? "Sensores avançados indisponíveis.";
+            }
+        }
         void ReadCpuThermal()
         {
-            string lhm = "Abra o LibreHardwareMonitor (opção WMI ativa) para medir a CPU com precisão.";
+            if (Advanced != null) Advanced.Ensure(interval);
+            string lhm = AdvancedReason();
+            double v;
+            bool hasTemp = Advanced != null && Advanced.TryGet("cpu_temp", out v) && Keep("cpu_temp", v);
+            bool hasPower = Advanced != null && Advanced.TryGet("cpu_power", out v) && Keep("cpu_power", v);
+            if (Advanced != null && Advanced.TryGet("board_temp", out v)) Set("board_temp", true, v, Embedded, null); else Set("board_temp", false, 0, null, lhm);
+            if (Advanced != null && Advanced.TryGet("cpu_fan", out v)) Set("cpu_fan", true, v, Embedded, null); else Set("cpu_fan", false, 0, null, lhm);
+            if (hasTemp && hasPower) return;
+            if (hasTemp) { Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm); return; }
             if (!double.IsNaN(wmiCpuTemp)) Set("cpu_temp", true, wmiCpuTemp, "LibreHardwareMonitor", null);
             else
             {
-                double acpi = AcpiTemperature();
+                if (DateTime.UtcNow >= acpiAt) { acpiAt = DateTime.UtcNow.AddSeconds(1); acpiLast = AcpiTemperature(); }
+                double acpi = acpiLast;
                 Set("cpu_temp", !double.IsNaN(acpi), acpi, "ACPI (aproximada)", lhm);
             }
-            Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm);
+            if (!hasPower) Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm);
         }
+        bool Keep(string id, double value) { Set(id, true, value, Embedded, null); return true; }
         double AcpiTemperature()
         {
             try
