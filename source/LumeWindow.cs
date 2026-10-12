@@ -77,7 +77,7 @@ namespace LumeRgb
                 Fallback("Esta interface usa o Microsoft Edge WebView2, que vem com o Windows 10/11. Ele não foi encontrado neste PC.\r\n\r\n" +
                     "Instale o “WebView2 Runtime” gratuito da Microsoft e abra o Lume novamente. Enquanto isso, o ícone da bandeja, os widgets e o atalho Ctrl + Alt + L continuam funcionando.", true);
             }
-            catch (Exception e) { Fallback("Não foi possível iniciar a interface: " + e.Message); }
+            catch (Exception e) { Program.Log("WebView2: " + e); Fallback("Não foi possível iniciar a interface: " + e.Message + "\r\n\r\nDetalhes em " + Program.LogPath); }
         }
         void Fallback(string message) { Fallback(message, false); }
         void Fallback(string message, bool offerDownload)

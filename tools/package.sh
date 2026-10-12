@@ -21,7 +21,7 @@ mcs -langversion:5 -nologo -target:winexe -platform:x64 -optimize+ -win32icon:lu
 cp "$root"/lib/*.dll "$stage/"
 cp -r "$root/ui" "$stage/ui"
 mkdir -p "$stage/source"; cp "$root"/source/*.cs "$root/source/build.ps1" "$root/source/lume.ico" "$stage/source/"; cp -r "$root/source/tests" "$stage/source/tests"
-cp "$root/LEIA-ME.txt" "$root/ATRIBUICOES.txt" "$stage/"; cp "$root/LICENSE-GPL-2.0.txt" "$stage/LICENSE"; cp "$root/lib/WebView2-LICENSE.txt" "$stage/"
+cp "$root/LEIA-ME.txt" "$root/ATRIBUICOES.txt" "$root/COMPILAR.bat" "$stage/"; cp "$root/LICENSE-GPL-2.0.txt" "$stage/LICENSE"; cp "$root/lib/WebView2-LICENSE.txt" "$stage/"
 mkdir -p "$stage/previas"; cp "$root"/docs/previews/*.png "$stage/previas/"
 if [ "${1:-}" != "" ] && [ -d "$1" ]; then cp -r "$1" "$stage/"; fi
 (cd "$out" && zip -qr LumeRGB.zip LumeRGB)

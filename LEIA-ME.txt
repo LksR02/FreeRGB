@@ -48,8 +48,20 @@ CONFIGURAÇÕES
 %LOCALAPPDATA%\LumeRGBStandalone\settings.json (anterior em settings.json.bak).
 Configurações da versão anterior são carregadas normalmente.
 
+SE NÃO ABRIR
+1. Antes de extrair: botão direito no zip > Propriedades > marque "Desbloquear"
+   > OK. Depois extraia tudo de novo (não rode de dentro do zip).
+2. Se aparecer "O Windows protegeu o computador": Mais informações >
+   Executar assim mesmo.
+3. Se aparecer uma mensagem de erro, ela informa o arquivo de log:
+   %LOCALAPPDATA%\LumeRGBStandalone\erro.log — envie o conteúdo para análise.
+4. Ainda sem abrir? Recompile no seu PC (abaixo).
+
 RECOMPILAR
-No PowerShell: source\build.ps1 (usa o csc do .NET Framework do Windows).
+Clique duas vezes em COMPILAR.bat. Ele desbloqueia os arquivos, usa o csc do
+.NET Framework que já vem no Windows e gera um novo LumeRGB.exe na mesma pasta.
+(Equivalente no PowerShell: powershell -ExecutionPolicy Bypass -File source\build.ps1)
+Feche o Lume antes (ícone da bandeja > Sair).
 Testes sem hardware em source\tests. A interface fica em ui\ (HTML/CSS/JS):
 abrir ui\index.html num navegador mostra um modo demonstração.
 Para ver ferramentas de desenvolvedor na janela: LumeRGB.exe --devtools

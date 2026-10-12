@@ -23,6 +23,36 @@ namespace LumeRgb
 
         [STAThread] static int Main(string[] args)
         {
+            // Any startup failure becomes a readable message + log file instead of a silent exit.
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => Crash(e.ExceptionObject as Exception);
+            Application.ThreadException += (s, e) => Crash(e.Exception);
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            try { return Start(args); }
+            catch (Exception e) { Crash(e); return 1; }
+        }
+        public static string LogPath
+        {
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LumeRGBStandalone", "erro.log"); }
+        }
+        public static void Log(string text)
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)); File.AppendAllText(LogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n\r\n"); } catch { }
+        }
+        static void Crash(Exception e)
+        {
+            string text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  Lume RGB " + Version + "  " + Environment.OSVersion + "  .NET " + Environment.Version +
+                (Environment.Is64BitProcess ? " x64" : " x86") + "\r\n" + (e == null ? "Erro desconhecido" : e.ToString()) + "\r\n\r\n";
+            try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)); File.AppendAllText(LogPath, text); } catch { }
+            try
+            {
+                MessageBox.Show("O Lume RGB encontrou um erro:\r\n\r\n" + (e == null ? "desconhecido" : e.GetBaseException().Message) +
+                    "\r\n\r\nDetalhes salvos em:\r\n" + LogPath, "Lume RGB", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { }
+        }
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static int Start(string[] args)
+        {
             string command = args.Contains("--toggle") ? "toggle" : args.Contains("--on") ? "on" : args.Contains("--off") ? "off" : "show";
             bool background = args.Contains("--background");
             bool first;
