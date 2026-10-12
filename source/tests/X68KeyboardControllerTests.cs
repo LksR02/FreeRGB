@@ -107,7 +107,7 @@ class X68KeyboardControllerTests
         controller.Stream(Color.Red, 100); int q0 = live.QueryCount, f0 = live.FrameWrites;
         System.Threading.Thread.Sleep(1000);
         int perSecond = (live.FrameWrites - f0) / 7;
-        Assert(perSecond >= 20 && perSecond <= 35, "one colour keeps streaming at ~30 frames/s (" + perSecond + "/s)");
+        Assert(perSecond >= 24 && perSecond <= 36, "one colour keeps streaming at ~30 frames/s (" + perSecond + "/s)");
         controller.GetZone(); Assert(live.QueryCount == q0 && controller.IsStreaming, "no GET request while streaming (read-back uses the last state)");
         System.Threading.Thread.Sleep((X68KeyboardController.StreamHoldSeconds + 1) * 1000);
         int stopped = live.FrameWrites; System.Threading.Thread.Sleep(300);

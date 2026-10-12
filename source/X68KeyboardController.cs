@@ -255,9 +255,15 @@ namespace LumeRgb
         }
         void StreamLoop(int generation)
         {
+            // Frames on a fixed schedule: Windows rounds Sleep up to its ~15.6 ms tick, so sleeping a plain 33 ms
+            // each time would drift to ~21 frames/s. Aiming at the next slot keeps the average at 30.
+            var clock = Stopwatch.StartNew(); long slot = 0;
             while (true)
             {
-                Thread.Sleep(FramePeriodMs);
+                slot++;
+                long wait = slot * FramePeriodMs - clock.ElapsedMilliseconds;
+                if (wait > 0) Thread.Sleep((int)wait);
+                else if (wait < -FramePeriodMs * 3) slot = clock.ElapsedMilliseconds / FramePeriodMs; // fell far behind: do not burst
                 lock (gate)
                 {
                     if (generation != streamGeneration) return;
