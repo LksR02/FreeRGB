@@ -10,7 +10,6 @@ Get-ChildItem -LiteralPath $appDirectory -Recurse -File | Unblock-File -ErrorAct
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $compilerPath)) { $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 if (-not (Test-Path -LiteralPath $compilerPath)) { throw 'Compilador do .NET Framework 4 não encontrado (csc.exe).' }
-$frameworkDirectory = Split-Path -Parent $compilerPath
 Write-Output "Compilador: $compilerPath"
 
 # No pacote as DLLs do WebView2 ficam ao lado do exe; no repositório, na pasta lib.
@@ -20,15 +19,12 @@ foreach ($dll in 'Microsoft.Web.WebView2.Core.dll', 'Microsoft.Web.WebView2.WinF
   if (-not (Test-Path -LiteralPath (Join-Path $libDirectory $dll))) { throw "Arquivo ausente: $dll. Extraia o zip completo antes de compilar." }
 }
 
-$sources = 'LumeApp.cs','LumeWindow.cs','LumeService.cs','DesktopWidgets.cs','PersonalSettings.cs','WindowsDevices.cs','MsiRgbController.cs','X68KeyboardController.cs','LightingHub.cs' | ForEach-Object { Join-Path $PSScriptRoot $_ }
+$sources = Get-ChildItem -LiteralPath $PSScriptRoot -Filter *.cs | Sort-Object Name | ForEach-Object { $_.FullName }
 $output = Join-Path $appDirectory 'LumeRGB.exe'
 if (Get-Process -Name LumeRGB -ErrorAction SilentlyContinue) { throw 'Feche o Lume RGB (inclusive pelo ícone da bandeja → Sair) antes de compilar.' }
 
-& $compilerPath /nologo /target:winexe /platform:x64 /optimize+ /utf8output "/win32icon:$PSScriptRoot\lume.ico" "/out:$output" `
-  "/reference:$frameworkDirectory\System.dll" "/reference:$frameworkDirectory\System.Core.dll" "/reference:$frameworkDirectory\System.Drawing.dll" `
-  "/reference:$frameworkDirectory\System.Windows.Forms.dll" "/reference:$frameworkDirectory\System.Runtime.Serialization.dll" `
-  "/reference:$frameworkDirectory\System.Web.Extensions.dll" `
-  "/reference:$libDirectory\Microsoft.Web.WebView2.Core.dll" "/reference:$libDirectory\Microsoft.Web.WebView2.WinForms.dll" $sources
+# Mesmas opções do atualizador automático (source\build.rsp).
+& $compilerPath "@$PSScriptRoot\build.rsp" "/out:$output" "/win32icon:$PSScriptRoot\lume.ico" "/lib:$libDirectory" $sources
 if ($LASTEXITCODE -ne 0) { throw 'A compilação falhou. Copie as mensagens acima e envie para análise.' }
 if ($libDirectory -ne $appDirectory) { Copy-Item (Join-Path $libDirectory '*.dll') $appDirectory -Force }
 Write-Output ""

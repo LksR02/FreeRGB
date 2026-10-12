@@ -1,4 +1,29 @@
-﻿LUME RGB 3.0 — NOVA INTERFACE + WIDGETS NA ÁREA DE TRABALHO
+﻿LUME RGB 3.1 — REAÇÕES + ATUALIZAÇÃO AUTOMÁTICA
+
+NOVO NA 3.1
+• Reações (nova página): ligue qualquer sensor do PC a qualquer zona.
+    Sensores: uso da CPU, RAM e GPU; temperatura da GPU e da CPU; consumo (W)
+    da GPU, da CPU e CPU + GPU.
+    Cada reação escolhe as zonas, a faixa de valores (ex.: 35–85 °C), as cores
+    (mín, meio opcional, máx) ou "Intensidade" (o brilho acompanha o valor), e
+    pode pulsar (respiração) acima de um limite. Modelos prontos: CPU no
+    teclado, GPU quente nas ventoinhas, Watts no gabinete, RAM no brilho.
+    Ao desligar as Reações, as zonas voltam às cores de antes.
+    Fontes: Windows (CPU, RAM, GPU), driver NVIDIA (temperatura, uso e watts
+    da GPU) e, para temperatura/watts exatos da CPU, o LibreHardwareMonitor
+    aberto (ele publica os sensores via WMI). Sem ele, a temperatura da CPU
+    vem do ACPI (aproximada) e o consumo da CPU fica indisponível.
+• Atualização automática: sempre que abre (e a cada 12 h), o Lume consulta o
+  branch main do GitHub (LksR02/FreeRGB). Se houver mudança no app, baixa o
+  código, compila com o compilador do próprio Windows e instala. Com a janela
+  aberta aparece um aviso "Reiniciar agora"; fechado na bandeja, reinicia
+  sozinho. Ajustes > Atualizações: desligar a instalação automática,
+  "Verificar agora" e a versão (commit) instalada. Detalhes de falhas em
+  %LOCALAPPDATA%\LumeRGBStandalone\erro.log.
+  Dica: deixe o Lume numa pasta sua (ex.: C:\LumeRGB), não em Arquivos de
+  Programas, para que ele possa se atualizar.
+
+LUME RGB 3.0 — NOVA INTERFACE + WIDGETS NA ÁREA DE TRABALHO
 
 ABRIR
 Extraia o zip inteiro (a pasta "ui" e as DLLs precisam ficar ao lado do exe) e
@@ -29,7 +54,7 @@ O QUE HÁ DE NOVO
 • Ajustes > Visual: Máximo / Equilibrado / Leve e "Reduzir movimento".
 
 ATALHOS DA JANELA
-1–6: páginas · Ctrl + R: detectar dispositivos · Ctrl + Enter: aplicar no
+1–7: páginas · Ctrl + R: detectar dispositivos · Ctrl + Enter: aplicar no
 Estúdio · Esc: descartar a prévia · Ctrl + Clique: marcar várias zonas.
 
 COMO FUNCIONA O DESLIGAR

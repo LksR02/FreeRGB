@@ -13,6 +13,24 @@ using System.Threading.Tasks;
 
 namespace LumeRgb
 {
+    public static class AppLog
+    {
+        public static string Path
+        {
+            get { return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LumeRGBStandalone", "erro.log"); }
+        }
+        public static void Write(string text)
+        {
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
+                var info = new FileInfo(Path); if (info.Exists && info.Length > 512 * 1024) info.Delete(); // keep the log small
+                File.AppendAllText(Path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n\r\n");
+            }
+            catch { }
+        }
+    }
+
     public sealed class Scene
     {
         public string Id, Name, Color, Effect, Glow;
@@ -90,13 +108,14 @@ namespace LumeRgb
                 job();
             }
         }
-        Task Enqueue(string text, Action work, Func<string> success)
+        Task Enqueue(string text, Action work, Func<string> success) { return Enqueue(text, work, success, false); }
+        // quiet jobs (reactive lighting) run without the busy indicator so the UI does not flicker every second.
+        Task Enqueue(string text, Action work, Func<string> success, bool quiet)
         {
             var completion = new TaskCompletionSource<object>();
             Action job = delegate
             {
-                lock (gate) { busy = true; busyText = text; }
-                Raise();
+                if (!quiet) { lock (gate) { busy = true; busyText = text; } Raise(); }
                 Exception failure = null; string message = null;
                 try { work(); if (success != null) message = success(); }
                 catch (Exception e) { failure = e; }
@@ -344,6 +363,52 @@ namespace LumeRgb
                 });
             }
             catch { }
+        }
+
+        // ---------- reactive lighting ----------
+        List<ZoneSetting> pendingReactive; bool reactiveQueued; DateTime reactiveFailedAt = DateTime.MinValue;
+        public DateTime LastReactiveFailure { get { lock (gate) return reactiveFailedAt; } }
+        // Coalesced: while a reactive write is waiting, newer targets replace it instead of piling up.
+        public void ApplyReactive(List<ZoneSetting> settings)
+        {
+            if (settings == null || settings.Count == 0) return;
+            lock (gate) { pendingReactive = settings; if (reactiveQueued) return; reactiveQueued = true; }
+            Enqueue(null, delegate
+            {
+                List<ZoneSetting> list;
+                lock (gate)
+                {
+                    list = pendingReactive; pendingReactive = null; reactiveQueued = false;
+                    if (list == null || desiredPower.HasValue || backend == null || !backend.IsConnected || PowerOf(zones) == "off") return;
+                    list = list.Where(t => zones.Any(z => z.Key == t.Key)).ToList();
+                    if (list.Count == 0) return;
+                }
+                string conflict = conflictCheck == null ? null : conflictCheck();
+                if (conflict != null) throw new InvalidOperationException(conflict);
+                foreach (var t in list) t.Effect = Normalize(t.Key, t.Effect);
+                try
+                {
+                    try { backend.Apply(list); }
+                    catch (NotSupportedException)
+                    {
+                        // Board still in a synchronized mode: send all four headers once, keeping the others as they are.
+                        if (!list.Any(t => BoardKeys.Contains(t.Key))) throw;
+                        List<RgbZone> current; lock (gate) current = zones.Select(Copy).ToList();
+                        foreach (var z in current.Where(c => BoardKeys.Contains(c.Key) && !list.Any(t => t.Key == c.Key)))
+                            list.Add(new ZoneSetting { Key = z.Key, Color = z.CurrentColor, BrightnessPercent = z.CurrentBrightnessPercent, Effect = Normalize(z.Key, z.Effect), SpeedPercent = z.CurrentSpeedPercent });
+                        backend.Apply(list);
+                    }
+                }
+                catch { lock (gate) reactiveFailedAt = DateTime.UtcNow; TryRefresh(); throw; }
+                Refresh();
+            }, null, true);
+        }
+        // Completes once every job queued before it has run (jobs are strictly FIFO).
+        public Task Idle() { return Enqueue(null, delegate { }, null, true); }
+        public List<ZoneSetting> CurrentSettings()
+        {
+            lock (gate) return zones.Select(z => new ZoneSetting { Key = z.Key, Color = z.CurrentColor, BrightnessPercent = z.CurrentBrightnessPercent,
+                Effect = Normalize(z.Key, z.Effect), SpeedPercent = z.CurrentSpeedPercent }).ToList();
         }
 
         // ---------- profiles ----------
