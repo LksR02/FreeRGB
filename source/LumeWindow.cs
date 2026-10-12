@@ -306,6 +306,7 @@ namespace LumeRgb
                 what == "source" ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "source") :
                 what == "app" ? AppDomain.CurrentDomain.BaseDirectory : null;
             if (what == "url") { OpenExternal(url); return; }
+            if (what == "log") { if (!File.Exists(AppLog.Path)) throw new InvalidOperationException("Nenhum erro registrado ainda."); Process.Start("notepad.exe", "\"" + AppLog.Path + "\""); return; }
             if (target == null) throw new ArgumentException("Destino desconhecido.");
             Directory.CreateDirectory(target); Process.Start(target);
         }

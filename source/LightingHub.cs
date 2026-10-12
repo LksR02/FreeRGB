@@ -87,7 +87,8 @@ namespace LumeRgb
             LastWriteVerified = false; bool boardComplete = false;
             try {
                 if (boardSettings.Count > 0) { if (fast) motherboard.ApplyFast(boardSettings); else motherboard.Apply(boardSettings); boardComplete = true; }
-                if (keySettings.Count > 0) { if (fast) keyboard.ApplyFast(keySettings[0]); else keyboard.Apply(keySettings[0]); }
+                // Reactive (fast) keyboard updates stream frames in the native "Screen color" mode: no blinking.
+                if (keySettings.Count > 0) { if (fast) keyboard.Stream(keySettings[0].Color, keySettings[0].BrightnessPercent); else keyboard.Apply(keySettings[0]); }
                 LastWriteVerified = (boardSettings.Count == 0 || motherboard.LastWriteVerified) && (keySettings.Count == 0 || keyboard.LastWriteVerified);
             } catch (NotSupportedException) { throw; }
             catch (Exception e) {

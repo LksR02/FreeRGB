@@ -10,7 +10,7 @@ class X68KeyboardControllerTests
         public ushort VendorId { get; set; } public ushort ProductId { get; set; }
         public ushort UsagePage { get; set; } public ushort Usage { get; set; }
         public int FeatureReportLength { get; set; } public string ProductName { get; set; }
-        public byte[] State, LastWrite, PendingState; public int QueryCount, LightingWrites, StaleReads; public bool Disposed, BadReadback;
+        public byte[] State, LastWrite, PendingState; public int QueryCount, LightingWrites, StaleReads, FrameWrites; public bool Disposed, BadReadback;
         public Fake() { VendorId = 0x3151; ProductId = 0x502D; UsagePage = 0xFFFF; Usage = 2; FeatureReportLength = 65; ProductName = "X68HE";
             State = new byte[65]; State[1] = 0x87; State[2] = 1; State[3] = 3; State[4] = 4; State[5] = 0xA7; State[6] = 24; State[7] = 56; State[8] = 78; }
         public byte[] GetFeature()
@@ -23,6 +23,7 @@ class X68KeyboardControllerTests
         {
             X68WindowsHidTransport.ValidateOutgoingReport(report);
             if (report[1] == 0x87) { QueryCount++; return; }
+            if (report[1] == 0x0F) { FrameWrites++; return; }
             LightingWrites++; LastWrite = (byte[])report.Clone();
             if (!BadReadback)
             {
@@ -65,6 +66,26 @@ class X68KeyboardControllerTests
         wrong = new Fake(); wrong.State[4] = 5; Throws<InvalidDataException>(()=>new X68KeyboardController().Connect(wrong),"unknown brightness refused");
         wrong = new Fake(); controller = new X68KeyboardController(); controller.Connect(wrong); wrong.BadReadback = true;
         Throws<IOException>(()=>controller.Apply(Setting(25,"Static",50)),"wrong independent readback reported"); Assert(!controller.IsConnected && wrong.Disposed,"readback failure disconnects");
+        // Live colour frames (manufacturer's Dynamic RGB protocol)
+        byte[] rgbFrame = new byte[378]; for (int i = 0; i < rgbFrame.Length; i++) rgbFrame[i] = (byte)i;
+        var packets = X68KeyboardController.BuildSyncFrame(rgbFrame);
+        Assert(packets.Count == 7, "126-cell frame splits into 7 chunks of 56 bytes");
+        bool layout = true;
+        for (int c = 0; c < packets.Count; c++)
+        {
+            var pk = packets[c]; X68WindowsHidTransport.ValidateOutgoingReport(pk);
+            int frameSum = 0; for (int i = 1; i <= 7; i++) frameSum += pk[i];
+            if (pk[0] != 0 || pk[1] != 0x0F || pk[2] != 1 || pk[3] != c || pk[4] != 56 || pk[5] != (c == 6 ? 1 : 0) || pk[6] != 0 || pk[7] != 0 || pk[8] != (byte)(255 - (frameSum & 255))) layout = false;
+            for (int i = 0; i < Math.Min(56, 378 - c * 56); i++) if (pk[9 + i] != rgbFrame[c * 56 + i]) layout = false;
+        }
+        Assert(layout, "frame header, Bit7 checksum, chunk/last flags and colour bytes match the vendor app");
+        var mode = X68KeyboardController.BuildSyncMode(fake.State); X68WindowsHidTransport.ValidateOutgoingReport(mode);
+        Assert(mode[1] == 7 && mode[2] == 21 && mode[4] == 4 && mode[5] == 0, "live mode = native Screen color effect at full hardware brightness");
+        bad = (byte[])packets[0].Clone(); bad[8] ^= 1; Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(bad), "corrupt frame checksum refused");
+        Fake live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
+        int before = live.LightingWrites; controller.Stream(Color.FromArgb(10, 20, 30), 50); controller.Stream(Color.FromArgb(40, 50, 60), 100);
+        Assert(live.LightingWrites - before == 1 && live.State[2] == 21, "two streamed colours send the mode command only once");
+        controller.Dispose();
         Console.WriteLine("RESULT " + count + " meaningful protocol checks passed; no hardware touched.");
     }
 }

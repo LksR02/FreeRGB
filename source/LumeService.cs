@@ -248,7 +248,15 @@ namespace LumeRgb
             List<RgbZone> list;
             try { list = backend.GetZones(); }
             catch { lock (gate) zones = new List<RgbZone>(); throw; }
-            lock (gate) { zones = list; foreach (var z in zones) z.Name = ZoneNameUnlocked(z.Key); }
+            lock (gate)
+            {
+                zones = list;
+                foreach (var z in zones)
+                {
+                    z.Name = ZoneNameUnlocked(z.Key);
+                    if (z.Key == "X68HE" && z.Effect == StreamEffect && streamedKeyboard != null) { z.CurrentColor = streamedKeyboard.Color; z.CurrentBrightnessPercent = streamedKeyboard.BrightnessPercent; }
+                }
+            }
         }
         void ApplyNow(List<ZoneSetting> settings)
         {
@@ -433,6 +441,7 @@ namespace LumeRgb
                     {
                         var z = zones.FirstOrDefault(x => x.Key == t.Key); if (z == null) continue;
                         z.CurrentColor = t.Color; z.CurrentBrightnessPercent = t.BrightnessPercent; z.Effect = t.Effect; z.CurrentSpeedPercent = t.SpeedPercent;
+                        if (t.Key == "X68HE") { z.Effect = StreamEffect; streamedKeyboard = t; }
                     }
                 }
                 if ((DateTime.UtcNow - lastResync).TotalSeconds >= 3) { lastResync = DateTime.UtcNow; Refresh(); }
@@ -440,6 +449,9 @@ namespace LumeRgb
             }, null, true, true);
         }
         DateTime lastResync = DateTime.UtcNow; int reactiveWrites;
+        // The keyboard's live mode keeps its colour in the stream, not in its readable parameters.
+        public const string StreamEffect = "Screen color";
+        ZoneSetting streamedKeyboard;
         public int ReactiveWrites { get { lock (gate) return reactiveWrites; } }
 
         // Used when reactions stop while everything is off: "Ligar" must bring back the pre-reaction look.

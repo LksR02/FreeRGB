@@ -18,9 +18,9 @@ mcs -langversion:5 -nologo $refs -r:System.Windows.Forms.dll -out:"$bin/WidgetPr
 mono "$bin/WidgetPreview.exe" "$bin" >/dev/null
 # Same options file as COMPILAR.bat and the in-app updater.
 mcs -langversion:5 @build.rsp -out:"$stage/LumeRGB.exe" -win32icon:lume.ico -lib:../lib *.cs
-cp "$root"/lib/*.dll "$stage/"
+cp "$root"/lib/*.dll "$root/source/LumeRGB.exe.config" "$stage/"
 cp -r "$root/ui" "$stage/ui"
-mkdir -p "$stage/source"; cp "$root"/source/*.cs "$root/source/build.ps1" "$root/source/build.rsp" "$root/source/lume.ico" "$stage/source/"; cp -r "$root/source/tests" "$stage/source/tests"
+mkdir -p "$stage/source"; cp "$root"/source/*.cs "$root/source/build.ps1" "$root/source/build.rsp" "$root/source/LumeRGB.exe.config" "$root/source/lume.ico" "$stage/source/"; cp -r "$root/source/tests" "$stage/source/tests"
 cp "$root/LEIA-ME.txt" "$root/ATRIBUICOES.txt" "$root/COMPILAR.bat" "$stage/"; cp "$root/LICENSE-GPL-2.0.txt" "$stage/LICENSE"; cp "$root/lib/WebView2-LICENSE.txt" "$root/lib/SENSORES-LICENCAS.txt" "$stage/"
 mkdir -p "$stage/previas"; cp "$root"/docs/previews/*.png "$stage/previas/"
 if [ "${1:-}" != "" ] && [ -d "$1" ]; then cp -r "$1" "$stage/"; fi

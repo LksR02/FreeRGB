@@ -41,7 +41,7 @@ namespace LumeRgb
 
     public sealed class SensorHub : ISensorSource, IDisposable
     {
-        public static readonly string[] Ids = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan" };
+        public static readonly string[] Ids = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan", "cpu_clock", "disk_load", "net_load" };
         public IAdvancedSource Advanced;
         readonly object gate = new object();
         readonly Dictionary<string, SensorReading> readings = new Dictionary<string, SensorReading>();
@@ -75,6 +75,9 @@ namespace LumeRgb
             Define("total_power", "Consumo CPU + GPU", "W", 50, 400);
             Define("board_temp", "Temperatura da placa-mãe", "°C", 25, 60);
             Define("cpu_fan", "Ventoinha da CPU", "RPM", 500, 2500);
+            Define("cpu_clock", "Frequência da CPU", "MHz", 800, 5500);
+            Define("disk_load", "Uso do disco", "%", 0, 100);
+            Define("net_load", "Tráfego de rede", "Mbit/s", 0, 200);
             thread = new Thread(Run) { IsBackground = true, Name = "Lume sensors", Priority = ThreadPriority.BelowNormal };
             thread.Start();
         }
@@ -89,7 +92,8 @@ namespace LumeRgb
                 case "cpu_load": return "Uso da CPU"; case "ram_load": return "Uso da memória RAM"; case "gpu_load": return "Uso da GPU";
                 case "gpu_temp": return "Temperatura da GPU"; case "gpu_power": return "Consumo da GPU"; case "cpu_temp": return "Temperatura da CPU";
                 case "cpu_power": return "Consumo da CPU"; case "total_power": return "Consumo CPU + GPU";
-                case "board_temp": return "Temperatura da placa-mãe"; case "cpu_fan": return "Ventoinha da CPU"; default: return id;
+                case "board_temp": return "Temperatura da placa-mãe"; case "cpu_fan": return "Ventoinha da CPU";
+                case "cpu_clock": return "Frequência da CPU"; case "disk_load": return "Uso do disco"; case "net_load": return "Tráfego de rede"; default: return id;
             }
         }
 
@@ -147,6 +151,7 @@ namespace LumeRgb
 
             // LibreHardwareMonitor refreshes about once per second; asking more often only costs CPU.
             if (DateTime.UtcNow >= wmiAt) { wmiAt = DateTime.UtcNow.AddMilliseconds(900); ReadWmi(); }
+            if (DateTime.UtcNow >= countersAt) { countersAt = DateTime.UtcNow.AddMilliseconds(250); ReadWindowsCounters(); }
             ReadGpu();
             ReadCpuThermal();
 
@@ -199,6 +204,60 @@ namespace LumeRgb
             catch (Exception) { gpuCounters = null; gpuCountersAt = DateTime.UtcNow.AddSeconds(30); return double.NaN; }
         }
 
+        // ---------- Windows performance counters: no driver, no administrator ----------
+        DateTime countersAt, netInstancesAt; PerformanceCounter clockPerf, clockBase, diskIdle; PerformanceCounter[] net, energy;
+        bool countersTried, energyTried; double energyPower = double.NaN;
+        static PerformanceCounter Counter(string category, string counter, string instance)
+        {
+            try { var c = new PerformanceCounter(category, counter, instance, true); c.NextValue(); return c; } catch { return null; }
+        }
+        static double Next(PerformanceCounter c) { try { return c == null ? double.NaN : c.NextValue(); } catch { return double.NaN; } }
+        void ReadWindowsCounters()
+        {
+            if (!countersTried)
+            {
+                countersTried = true;
+                clockPerf = Counter("Processor Information", "% Processor Performance", "_Total");
+                clockBase = Counter("Processor Information", "Processor Frequency", "_Total");
+                diskIdle = Counter("PhysicalDisk", "% Idle Time", "_Total");
+            }
+            double perf = Next(clockPerf), mhz = Next(clockBase);
+            Set("cpu_clock", !double.IsNaN(perf) && mhz > 0, mhz * perf / 100.0, "Windows", "O Windows não informou a frequência da CPU.");
+            double idle = Next(diskIdle);
+            Set("disk_load", !double.IsNaN(idle), Math.Max(0, Math.Min(100, 100 - idle)), "Windows", "Contador de disco do Windows indisponível.");
+            if (net == null || DateTime.UtcNow > netInstancesAt)
+            {
+                netInstancesAt = DateTime.UtcNow.AddSeconds(30); // adapters come and go (VPN, Wi-Fi)
+                try
+                {
+                    if (net != null) foreach (var c in net) if (c != null) c.Dispose();
+                    net = new PerformanceCounterCategory("Network Interface").GetInstanceNames().Select(n => Counter("Network Interface", "Bytes Total/sec", n)).Where(c => c != null).ToArray();
+                }
+                catch { net = new PerformanceCounter[0]; }
+            }
+            double bytes = 0; bool any = false;
+            foreach (var c in net) { double v = Next(c); if (!double.IsNaN(v)) { bytes += v; any = true; } }
+            Set("net_load", any, bytes * 8 / 1000000.0, "Windows", "Nenhuma interface de rede encontrada.");
+            // Windows "Energy Meter" (RAPL) counters give the CPU package power on processors that expose them.
+            if (!energyTried)
+            {
+                energyTried = true;
+                try
+                {
+                    var category = new PerformanceCounterCategory("Energy Meter");
+                    energy = category.GetInstanceNames().Where(n => n.IndexOf("PKG", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Package", StringComparison.OrdinalIgnoreCase) >= 0)
+                        .Select(n => Counter("Energy Meter", "Power", n)).Where(c => c != null).ToArray();
+                }
+                catch { energy = new PerformanceCounter[0]; }
+            }
+            energyPower = double.NaN;
+            if (energy != null && energy.Length > 0)
+            {
+                double mw = energy.Sum(c => { double v = Next(c); return double.IsNaN(v) ? 0 : v; });
+                energyPower = mw > 1000 ? mw / 1000.0 : mw; // the counter reports milliwatts
+            }
+        }
+
         const string Embedded = "LibreHardwareMonitor (embutido)";
         string AdvancedReason()
         {
@@ -221,7 +280,12 @@ namespace LumeRgb
             if (Advanced != null && Advanced.TryGet("board_temp", out v)) Set("board_temp", true, v, Embedded, null); else Set("board_temp", false, 0, null, lhm);
             if (Advanced != null && Advanced.TryGet("cpu_fan", out v)) Set("cpu_fan", true, v, Embedded, null); else Set("cpu_fan", false, 0, null, lhm);
             if (hasTemp && hasPower) return;
-            if (hasTemp) { Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm); return; }
+            if (hasTemp)
+            {
+                if (!double.IsNaN(energyPower) && energyPower > 0) Set("cpu_power", true, energyPower, "Windows (medidor de energia)", null);
+                else Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm);
+                return;
+            }
             if (!double.IsNaN(wmiCpuTemp)) Set("cpu_temp", true, wmiCpuTemp, "LibreHardwareMonitor", null);
             else
             {
@@ -229,7 +293,11 @@ namespace LumeRgb
                 double acpi = acpiLast;
                 Set("cpu_temp", !double.IsNaN(acpi), acpi, "ACPI (aproximada)", lhm);
             }
-            if (!hasPower) Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm);
+            if (!hasPower)
+            {
+                if (!double.IsNaN(energyPower) && energyPower > 0) Set("cpu_power", true, energyPower, "Windows (medidor de energia)", null);
+                else Set("cpu_power", !double.IsNaN(wmiCpuPower), wmiCpuPower, "LibreHardwareMonitor", lhm);
+            }
         }
         bool Keep(string id, double value) { Set(id, true, value, Embedded, null); return true; }
         double AcpiTemperature()

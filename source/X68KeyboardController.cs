@@ -4,6 +4,7 @@
 // Only GET_LEDPARAM 0x87 and SET_LEDPARAM 0x07 are supported. No key maps,
 // Hall-effect calibration, firmware, reset or analog-stream commands are sent.
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Diagnostics;
@@ -177,6 +178,66 @@ namespace LumeRgb
                 catch { Disconnect(); throw; }
             }
         }
+        // ---------- live colour streaming (no blinking) ----------
+        // SET_LEDPARAM restarts the keyboard's effect on every command, which is visible as a blink.
+        // The manufacturer's own "Dynamic RGB" app (Rongyuan) instead switches the keyboard to its native
+        // "Screen color" effect once and then streams frames with command 0x0F: a 21 x 6 grid
+        // (126 cells, RGB) split in 56-byte chunks, about every 30 ms. Frames never restart the effect.
+        public const int SyncEffect = 21, SyncColumns = 21, SyncRows = 6, SyncChunk = 56;
+        public bool Streaming { get { lock (gate) return latest != null && latest[2] == SyncEffect; } }
+        public void Stream(Color color, int brightnessPercent)
+        {
+            lock (gate)
+            {
+                RequireConnected();
+                try
+                {
+                    if (latest == null) latest = ReadReport();
+                    if (latest[2] != SyncEffect || latest[4] != 4)
+                    {
+                        byte[] mode = BuildSyncMode(latest); // full hardware brightness; dimming is done in the frames
+                        transport.SetFeature(mode);
+                        for (int i = 2; i <= 8; i++) latest[i] = mode[i];
+                    }
+                    double k = Math.Max(0, Math.Min(100, brightnessPercent)) / 100.0;
+                    byte r = (byte)Math.Round(color.R * k), g = (byte)Math.Round(color.G * k), b = (byte)Math.Round(color.B * k);
+                    byte[] frame = new byte[SyncColumns * SyncRows * 3];
+                    for (int i = 0; i < frame.Length; i += 3) { frame[i] = r; frame[i + 1] = g; frame[i + 2] = b; }
+                    foreach (var chunk in BuildSyncFrame(frame)) transport.SetFeature(chunk);
+                }
+                catch { Disconnect(); throw; }
+            }
+        }
+        internal static byte[] BuildSyncMode(byte[] previous)
+        {
+            ValidateReport(previous);
+            byte[] report = new byte[ReportLength];
+            report[1] = 7; report[2] = SyncEffect; report[3] = previous[3]; report[4] = 4;
+            report[5] = 0; // the official configurator sends option 0 for "Screen color"
+            report[6] = previous[6]; report[7] = previous[7]; report[8] = previous[8];
+            int sum = 0; for (int i = 1; i <= 8; i++) sum += report[i];
+            report[9] = (byte)(255 - (sum & 255));
+            return report;
+        }
+        // Packet layout from the vendor app: 8-byte header [0x0F, 0x01, chunk, 56, last, 0, 0, checksum]
+        // (Bit7 checksum over header bytes 0..6) followed by up to 56 colour bytes.
+        internal static List<byte[]> BuildSyncFrame(byte[] rgb)
+        {
+            if (rgb == null || rgb.Length != SyncColumns * SyncRows * 3) throw new ArgumentException("Quadro de cores X68HE inválido.");
+            var packets = new List<byte[]>();
+            int count = (rgb.Length + SyncChunk - 1) / SyncChunk;
+            for (int chunk = 0; chunk < count; chunk++)
+            {
+                byte[] report = new byte[ReportLength];
+                report[1] = 0x0F; report[2] = 1; report[3] = (byte)chunk; report[4] = SyncChunk; report[5] = (byte)(chunk == count - 1 ? 1 : 0);
+                int length = Math.Min(SyncChunk, rgb.Length - chunk * SyncChunk);
+                Buffer.BlockCopy(rgb, chunk * SyncChunk, report, 9, length);
+                int sum = 0; for (int i = 1; i <= 7; i++) sum += report[i];
+                report[8] = (byte)(255 - (sum & 255));
+                packets.Add(report);
+            }
+            return packets;
+        }
         internal static bool LightingFieldsEqual(byte[] expected, byte[] actual)
         {
             if (expected == null || actual == null || expected.Length != ReportLength || actual.Length != ReportLength) return false;
@@ -242,8 +303,17 @@ namespace LumeRgb
         }
         internal static void ValidateOutgoingReport(byte[] report)
         {
-            if (report == null || report.Length != 65 || report[0] != 0 || (report[1] != 0x87 && report[1] != 7))
+            if (report == null || report.Length != 65 || report[0] != 0 || (report[1] != 0x87 && report[1] != 7 && report[1] != 0x0F))
                 throw new ArgumentException("Somente comandos de parâmetros de luz X68HE são suportados.");
+            if (report[1] == 0x0F)
+            {
+                // Live colour frame: header, Bit7 checksum, colour bytes only.
+                int check = 0; for (int i = 1; i <= 7; i++) check += report[i];
+                if (report[2] != 1 || report[3] > 15 || report[4] != X68KeyboardController.SyncChunk || report[5] > 1 || report[6] != 0 || report[7] != 0 ||
+                    report[8] != (byte)(255 - (check & 255)))
+                    throw new ArgumentException("Quadro de cores X68HE inválido.");
+                return; // bytes 9..64 are exactly the 56 colour bytes
+            }
             int end = report[1] == 0x87 ? 7 : 8, sum = 0;
             for (int i = 1; i <= end; i++) sum += report[i];
             if (report[end + 1] != (byte)(255 - (sum & 255))) throw new ArgumentException("Checksum X68HE inválido.");
@@ -255,6 +325,8 @@ namespace LumeRgb
             // Wave (4) is accepted at the transport level solely to restore an
             // observed existing lighting state after a reversible protocol test.
             // The normal controller/UI still offers only Static and Breathing.
+            // "Screen color" (21) with option 0 is the live-streaming mode used by the manufacturer's Dynamic RGB.
+            else if (report[2] == X68KeyboardController.SyncEffect) { if (report[3] > 4 || report[4] > 4 || report[5] != 0) throw new ArgumentException("Parâmetros de luz X68HE inválidos."); }
             else if ((report[2] != 1 && report[2] != 2 && report[2] != 4) || report[3] > 4 || report[4] > 4 || (report[5] & 15) != 7)
                 throw new ArgumentException("Parâmetros de luz X68HE inválidos.");
         }

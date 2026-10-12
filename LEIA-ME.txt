@@ -1,4 +1,24 @@
-﻿LUME RGB 3.2 — REAÇÕES RÁPIDAS + SENSORES EMBUTIDOS
+﻿LUME RGB 3.3 — TECLADO AO VIVO SEM PISCAR + SENSORES SEM DRIVER
+
+NOVO NA 3.3
+• Teclado sem piscar nas Reações: o X68HE agora usa o modo nativo "Screen
+  color" (o mesmo do app "Dynamic RGB" do fabricante). O Lume troca o teclado
+  para esse modo uma única vez e depois envia só quadros de cor (comando 0x0F,
+  grade 21×6) — o efeito não é reiniciado a cada mudança, então as cores
+  deslizam sem piscar. A respiração de alerta também é feita pelo Lume.
+  No Studio, o efeito aparece como "Ao vivo" enquanto uma reação controla o
+  teclado; ao desligar as Reações ele volta ao efeito anterior.
+• Novos sensores que funcionam sem driver nem administrador: frequência real
+  da CPU (MHz), atividade do disco (%) e tráfego de rede (Mbit/s), lidos dos
+  contadores do próprio Windows. Se o Windows expuser o "Energy Meter", o
+  consumo da CPU (W) também passa a vir dele. Modelo novo: "Rede na fita".
+• Sensores avançados (LibreHardwareMonitor) agora são experimentais e mostram
+  o erro exato quando falham (driver PawnIO ausente, DLL bloqueada, nenhum
+  sensor de temperatura encontrado...). Botão "Ver registro" abre o erro.log.
+  Observação: a temperatura de CPUs AMD só pode ser lida com um driver de
+  kernel; sem ele o Lume usa a aproximação ACPI do Windows.
+
+LUME RGB 3.2 — REAÇÕES RÁPIDAS + SENSORES EMBUTIDOS
 
 NOVO NA 3.2
 • Reações muito mais rápidas e fluidas: as luzes são atualizadas de 1 a 30

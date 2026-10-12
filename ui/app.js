@@ -14,7 +14,7 @@ const EFFECTS = {
   'Double flashing': { name: 'Piscar duplo', icon: 'dflash', cls: 'dflash' },
   Lightning: { name: 'Relâmpago', icon: 'bolt', cls: 'lightning' },
 };
-const effectName = (e) => (EFFECTS[e] ? EFFECTS[e].name : e === 'Direct' ? 'Controle direto' : e || '—');
+const effectName = (e) => (EFFECTS[e] ? EFFECTS[e].name : e === 'Direct' ? 'Controle direto' : e === 'Screen color' ? 'Ao vivo' : e || '—');
 const PAGES = {
   home: ['Início', 'Sua iluminação inteira, em um toque.'],
   studio: ['Estúdio', 'Escolha a cor, o brilho e o efeito de cada zona.'],

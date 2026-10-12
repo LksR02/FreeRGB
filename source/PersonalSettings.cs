@@ -102,7 +102,7 @@ namespace LumeRgb
         public static readonly string[] Effects = { "Static", "Breathing", "Flashing", "Double flashing", "Lightning" };
         public static readonly string[] WidgetStyles = { "orb", "pill", "panel" };
         public static readonly string[] VisualLevels = { "max", "balanced", "light" };
-        public static readonly string[] SensorIds = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan" };
+        public static readonly string[] SensorIds = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan", "cpu_clock", "disk_load", "net_load" };
         public static Color ParseColor(string value)
         {
             if (value == null) throw new FormatException("Escolha uma cor hexadecimal como #7C6CFF.");

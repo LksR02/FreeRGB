@@ -25,13 +25,16 @@ class ReactiveTests
         public ushort VendorId { get { return 0x3151; } } public ushort ProductId { get { return 0x502D; } }
         public ushort UsagePage { get { return 0xFFFF; } } public ushort Usage { get { return 2; } }
         public int FeatureReportLength { get { return 65; } } public string ProductName { get { return "X68HE"; } }
-        public byte[] State;
+        public byte[] State; public int ModeWrites; public byte[] Frame = new byte[378]; public int Frames;
+        // Colour the keyboard is actually showing: streamed frame in live mode, parameters otherwise.
+        public int Rgb { get { return State[2] == 21 ? Frame[3] << 16 | Frame[4] << 8 | Frame[5] : State[6] << 16 | State[7] << 8 | State[8]; } }
         public FakeKeys() { State = new byte[65]; State[1] = 0x87; State[2] = 2; State[3] = 2; State[4] = 3; State[5] = 0xA7; State[6] = 10; State[7] = 200; State[8] = 90; }
         public byte[] GetFeature() { return (byte[])State.Clone(); }
         public void SetFeature(byte[] report)
         {
             X68WindowsHidTransport.ValidateOutgoingReport(report);
-            if (report[1] == 7) for (int i = 2; i <= 8; i++) State[i] = report[i];
+            if (report[1] == 7) { ModeWrites++; for (int i = 2; i <= 8; i++) State[i] = report[i]; }
+            if (report[1] == 0x0F) { Buffer.BlockCopy(report, 9, Frame, report[3] * 56, Math.Min(56, 378 - report[3] * 56)); if (report[5] == 1) Frames++; }
         }
         public void Dispose() { }
     }
@@ -82,12 +85,14 @@ class ReactiveTests
         Check(service.Settings.Reactions.Count == 1, "rule persisted and validated");
 
         sensors.Values["cpu_load"] = 0; engine.Step(1); Settle(service);
-        var k = Zone(service, "X68HE"); Check(k.CurrentColor.G == 255 && k.CurrentColor.R == 0 && k.Effect == "Static", "CPU 0% -> keyboard green");
+        var k = Zone(service, "X68HE"); Check(k.CurrentColor.G == 255 && k.CurrentColor.R == 0 && k.Effect == LumeService.StreamEffect && (keys.Rgb >> 8 & 255) == 255, "CPU 0% -> keyboard green (streamed)");
         int writes = hid.Writes;
         engine.Step(1); Settle(service); Check(hid.Writes == writes, "unchanged value sends nothing");
         for (int i = 0; i < 12; i++) { sensors.Values["cpu_load"] = 100; engine.Step(1); Settle(service); }
         k = Zone(service, "X68HE"); Check(k.CurrentColor.R == 255 && k.CurrentColor.G < 10, "CPU 100% -> keyboard red (after smoothing)");
-        Check(k.Effect == "Breathing", "alert above 90% makes the keyboard breathe");
+        int low = 100, high = 0;
+        for (int i = 0; i < 40; i++) { engine.Step(1 / 30.0); Settle(service); System.Threading.Thread.Sleep(35); int b = Zone(service, "X68HE").CurrentBrightnessPercent; low = Math.Min(low, b); high = Math.Max(high, b); }
+        Check(high - low > 40 && keys.State[2] == 21, "alert above 90%: the streamed keyboard breathes smoothly without leaving live mode (" + low + "–" + high + "%)");
         Check(hid.Writes == writes, "keyboard-only rule never writes to the board");
 
         var mid = ReactiveEngine.Evaluate(rule, "X68HE", 50); Check(mid.Color.R == 255 && mid.Color.G == 255 && mid.Color.B == 0, "50% hits the middle colour");
@@ -119,10 +124,14 @@ class ReactiveTests
 
         // Rhythm: fast path keeps up with many updates per second and glides between values.
         service.Mutate(s => { s.ReactionsEnabled = true; s.ReactiveRate = 30; s.ReactiveSmoothing = 0; }); engine.Refresh();
-        int keyboardWrites = 0; int last = keys.State[6] << 16 | keys.State[7] << 8 | keys.State[8];
-        for (int i = 0; i <= 30; i++) { sensors.Values["cpu_load"] = i * 100.0 / 30; engine.Step(1 / 30.0); Settle(service); int rgb = keys.State[6] << 16 | keys.State[7] << 8 | keys.State[8]; if (rgb != last) { keyboardWrites++; last = rgb; } }
+        int keyboardWrites = 0; int last = keys.Rgb, modeBefore = keys.ModeWrites;
+        for (int i = 0; i <= 30; i++) { sensors.Values["cpu_load"] = i * 100.0 / 30; engine.Step(1 / 30.0); Settle(service); int rgb = keys.Rgb; if (rgb != last) { keyboardWrites++; last = rgb; } }
+        Check(keys.State[2] == 21 && keys.ModeWrites - modeBefore <= 1, "keyboard streams in its native live mode: at most one mode command, then only colour frames (no blinking)");
+        bool uniform = true; for (int i = 0; i < 378; i += 3) if (keys.Frame[i] != keys.Frame[0] || keys.Frame[i + 1] != keys.Frame[1] || keys.Frame[i + 2] != keys.Frame[2]) uniform = false;
+        Check(uniform, "every one of the 126 cells receives the same colour");
         Check(keyboardWrites >= 25, "30 updates/s with smoothing 0: keyboard follows almost every step (" + keyboardWrites + " distinct colours)");
-        Check(Zone(service, "X68HE").CurrentColor.R == 255 && keys.State[6] == 255, "fast path state mirrors the hardware");
+        var mirrored = Zone(service, "X68HE");
+        Check(mirrored.CurrentColor.R == 255 && (keys.Rgb >> 16) == (int)Math.Round(255 * mirrored.CurrentBrightnessPercent / 100.0), "fast path state mirrors the hardware (frame = colour x brightness)");
         service.Mutate(s => s.ReactiveSmoothing = 100); engine.Refresh();
         sensors.Values["cpu_load"] = 0; engine.Step(1 / 30.0); engine.Step(1 / 30.0); Settle(service);
         var glide = Zone(service, "X68HE").CurrentColor;

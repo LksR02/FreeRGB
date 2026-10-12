@@ -29,6 +29,9 @@ namespace LumeRgb
         public static readonly TimeSpan Backoff = TimeSpan.FromSeconds(10);
         // The board rewrites a 185-byte settings report per change; keep it at a pace its firmware handles well.
         public const double BoardMaxPerSecond = 15;
+        public const string Keyboard = "X68HE";
+        readonly Stopwatch clock = Stopwatch.StartNew();
+        DateTime lastKeyboardFrame = DateTime.MinValue;
 
         public ReactiveEngine(LumeService service, ISensorSource sensors) : this(service, sensors, true) { }
         public ReactiveEngine(LumeService service, ISensorSource sensors, bool autoRun)
@@ -124,7 +127,19 @@ namespace LumeRgb
                     double previous, value = reading.Value;
                     if (smoothed.TryGetValue(rule.Id, out previous)) value = previous + alpha * (value - previous);
                     smoothed[rule.Id] = value;
-                    foreach (var key in rule.Keys) if (snap.Zones.Any(z => z.Key == key)) targets[key] = Evaluate(rule, key, value);
+                    foreach (var key in rule.Keys)
+                    {
+                        if (!snap.Zones.Any(z => z.Key == key)) continue;
+                        var target = Evaluate(rule, key, value);
+                        if (key == Keyboard && target.Effect == "Breathing")
+                        {
+                            // The streamed keyboard breathes in software: a smooth pulse without changing its mode.
+                            double phase = 0.5 + 0.5 * Math.Cos(2 * Math.PI * clock.Elapsed.TotalSeconds / 1.4);
+                            target.BrightnessPercent = Math.Max(1, (int)Math.Round(target.BrightnessPercent * (0.15 + 0.85 * phase)));
+                            target.Effect = "Static";
+                        }
+                        targets[key] = target;
+                    }
                 }
                 controlled.UnionWith(targets.Keys);
                 // Zones removed from every enabled rule (rule switched off, deleted or edited) go back to how they were.
@@ -139,8 +154,10 @@ namespace LumeRgb
                     ZoneSetting last;
                     // Someone else changed the zone (Studio, profile, a periodic read-back): forget what we sent.
                     if (sent.TryGetValue(target.Key, out last) && StateDiffers(zone, last)) sent.Remove(target.Key);
-                    if (!sent.TryGetValue(target.Key, out last) || Visible(last, target)) changes.Add(target);
+                    bool keepAlive = target.Key == Keyboard && (DateTime.UtcNow - lastKeyboardFrame).TotalSeconds >= 1; // keep the live mode fed
+                    if (!sent.TryGetValue(target.Key, out last) || Visible(last, target) || keepAlive) changes.Add(target);
                 }
+                if (changes.Any(c => c.Key == Keyboard)) lastKeyboardFrame = DateTime.UtcNow;
                 if (changes.Any(c => LumeService.BoardKeys.Contains(c.Key)))
                 {
                     if ((DateTime.UtcNow - lastBoardWrite).TotalSeconds < 1 / BoardMaxPerSecond) changes.RemoveAll(c => LumeService.BoardKeys.Contains(c.Key));
@@ -155,13 +172,19 @@ namespace LumeRgb
         // Is the new target different enough to be worth a USB write? (1/255 colour steps, physical brightness levels)
         static bool Visible(ZoneSetting a, ZoneSetting b)
         {
-            return a.Effect != b.Effect || Level(a.Key, a.BrightnessPercent) != Level(b.Key, b.BrightnessPercent) ||
+            // The keyboard is streamed with software dimming, so any brightness step counts.
+            bool brightness = a.Key == Keyboard ? Math.Abs(a.BrightnessPercent - b.BrightnessPercent) >= 2 : Level(a.Key, a.BrightnessPercent) != Level(b.Key, b.BrightnessPercent);
+            return a.Effect != b.Effect || brightness ||
                 Math.Abs(a.Color.R - b.Color.R) > 1 || Math.Abs(a.Color.G - b.Color.G) > 1 || Math.Abs(a.Color.B - b.Color.B) > 1;
         }
         static bool StateDiffers(RgbZone zone, ZoneSetting sentValue)
         {
-            if (Level(zone.Key, zone.CurrentBrightnessPercent) != Level(zone.Key, sentValue.BrightnessPercent)) return true;
-            if (zone.Effect != sentValue.Effect) return true;
+            if (zone.Key == Keyboard)
+            {
+                // Streaming: the zone shows the live-mode effect; anything else means someone changed it.
+                if (zone.Effect != LumeService.StreamEffect || Math.Abs(zone.CurrentBrightnessPercent - sentValue.BrightnessPercent) > 3) return true;
+            }
+            else if (Level(zone.Key, zone.CurrentBrightnessPercent) != Level(zone.Key, sentValue.BrightnessPercent) || zone.Effect != sentValue.Effect) return true;
             return Math.Abs(zone.CurrentColor.R - sentValue.Color.R) > 6 || Math.Abs(zone.CurrentColor.G - sentValue.Color.G) > 6 || Math.Abs(zone.CurrentColor.B - sentValue.Color.B) > 6;
         }
         void UpdateStats()

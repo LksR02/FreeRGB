@@ -231,8 +231,10 @@ namespace LumeRgb
             CopyTree(Path.Combine(root, "ui"), Path.Combine(stage, "ui"));
             string source = Path.Combine(stage, "source"); Directory.CreateDirectory(source);
             foreach (var file in Directory.GetFiles(Path.Combine(root, "source")))
-                if (new[] { ".cs", ".ps1", ".rsp", ".ico" }.Contains(Path.GetExtension(file).ToLowerInvariant())) File.Copy(file, Path.Combine(source, Path.GetFileName(file)), true);
+                if (new[] { ".cs", ".ps1", ".rsp", ".ico", ".config" }.Contains(Path.GetExtension(file).ToLowerInvariant())) File.Copy(file, Path.Combine(source, Path.GetFileName(file)), true);
             if (Directory.Exists(Path.Combine(root, "source", "tests"))) CopyTree(Path.Combine(root, "source", "tests"), Path.Combine(source, "tests"));
+            string config = Path.Combine(root, "source", "LumeRGB.exe.config");
+            if (File.Exists(config)) File.Copy(config, Path.Combine(stage, "LumeRGB.exe.config"), true);
             foreach (var name in new[] { "LEIA-ME.txt", "ATRIBUICOES.txt", "COMPILAR.bat" })
                 if (File.Exists(Path.Combine(root, name))) File.Copy(Path.Combine(root, name), Path.Combine(stage, name), true);
             if (File.Exists(Path.Combine(root, "LICENSE-GPL-2.0.txt"))) File.Copy(Path.Combine(root, "LICENSE-GPL-2.0.txt"), Path.Combine(stage, "LICENSE"), true);

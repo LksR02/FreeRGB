@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.2', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.3', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),
@@ -91,11 +91,11 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
   };
   // Simulated sensors + a tiny copy of the reactive engine, so the demo shows colours moving.
   const names = { cpu_load: ['Uso da CPU', '%', 0, 100], ram_load: ['Uso da memória RAM', '%', 0, 100], gpu_load: ['Uso da GPU', '%', 0, 100], gpu_temp: ['Temperatura da GPU', '°C', 35, 85],
-    gpu_power: ['Consumo da GPU', 'W', 20, 250], cpu_temp: ['Temperatura da CPU', '°C', 35, 90], cpu_power: ['Consumo da CPU', 'W', 15, 140], total_power: ['Consumo CPU + GPU', 'W', 50, 400], board_temp: ['Temperatura da placa-mãe', '°C', 25, 60], cpu_fan: ['Ventoinha da CPU', 'RPM', 500, 2500] };
+    gpu_power: ['Consumo da GPU', 'W', 20, 250], cpu_temp: ['Temperatura da CPU', '°C', 35, 90], cpu_power: ['Consumo da CPU', 'W', 15, 140], total_power: ['Consumo CPU + GPU', 'W', 50, 400], board_temp: ['Temperatura da placa-mãe', '°C', 25, 60], cpu_fan: ['Ventoinha da CPU', 'RPM', 500, 2500], cpu_clock: ['Frequência da CPU', 'MHz', 800, 5500], disk_load: ['Uso do disco', '%', 0, 100], net_load: ['Tráfego de rede', 'Mbit/s', 0, 200] };
   let t0 = 0, watching = false;
   const sensors = () => {
     t0 += 1; const w = (a, b, p) => a + (b - a) * (0.5 + 0.5 * Math.sin(t0 / p));
-    const v = { cpu_load: w(8, 96, 3), ram_load: w(41, 58, 9), gpu_load: w(2, 99, 5), gpu_temp: w(38, 79, 7), gpu_power: w(24, 231, 5) };
+    const v = { cpu_clock: w(3200, 5050, 3), disk_load: w(0, 64, 2), net_load: w(0.4, 96, 5), cpu_load: w(8, 96, 3), ram_load: w(41, 58, 9), gpu_load: w(2, 99, 5), gpu_temp: w(38, 79, 7), gpu_power: w(24, 231, 5) };
     return Object.keys(names).map((id) => {
       const [name, unit, min, max] = names[id];
       const adv = state.advanced.state === 'running';

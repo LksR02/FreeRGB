@@ -1,10 +1,10 @@
 // "Reações" page: live PC sensors and the rules that link them to lighting zones.
-const SENSOR_ICONS = { cpu_load: 'cpu', ram_load: 'memory', gpu_load: 'gpu', gpu_temp: 'thermo', cpu_temp: 'thermo', gpu_power: 'bolt', cpu_power: 'bolt', total_power: 'bolt', board_temp: 'thermo', cpu_fan: 'fan' };
-const SENSOR_NAMES = { cpu_load: 'Uso da CPU', ram_load: 'Uso da memória RAM', gpu_load: 'Uso da GPU', gpu_temp: 'Temperatura da GPU', gpu_power: 'Consumo da GPU', cpu_temp: 'Temperatura da CPU', cpu_power: 'Consumo da CPU', total_power: 'Consumo CPU + GPU', board_temp: 'Temperatura da placa-mãe', cpu_fan: 'Ventoinha da CPU' };
-const SENSOR_UNITS = { cpu_load: '%', ram_load: '%', gpu_load: '%', gpu_temp: '°C', gpu_power: 'W', cpu_temp: '°C', cpu_power: 'W', total_power: 'W', board_temp: '°C', cpu_fan: 'RPM' };
-const RANGES = { cpu_load: [0, 100], ram_load: [0, 100], gpu_load: [0, 100], gpu_temp: [35, 85], gpu_power: [20, 250], cpu_temp: [35, 90], cpu_power: [15, 140], total_power: [50, 400], board_temp: [25, 60], cpu_fan: [500, 2500] };
+const SENSOR_ICONS = { cpu_load: 'cpu', ram_load: 'memory', gpu_load: 'gpu', gpu_temp: 'thermo', cpu_temp: 'thermo', gpu_power: 'bolt', cpu_power: 'bolt', total_power: 'bolt', board_temp: 'thermo', cpu_fan: 'fan', cpu_clock: 'pulse', disk_load: 'folder', net_load: 'link' };
+const SENSOR_NAMES = { cpu_load: 'Uso da CPU', ram_load: 'Uso da memória RAM', gpu_load: 'Uso da GPU', gpu_temp: 'Temperatura da GPU', gpu_power: 'Consumo da GPU', cpu_temp: 'Temperatura da CPU', cpu_power: 'Consumo da CPU', total_power: 'Consumo CPU + GPU', board_temp: 'Temperatura da placa-mãe', cpu_fan: 'Ventoinha da CPU', cpu_clock: 'Frequência da CPU', disk_load: 'Uso do disco', net_load: 'Tráfego de rede' };
+const SENSOR_UNITS = { cpu_load: '%', ram_load: '%', gpu_load: '%', gpu_temp: '°C', gpu_power: 'W', cpu_temp: '°C', cpu_power: 'W', total_power: 'W', board_temp: '°C', cpu_fan: 'RPM', cpu_clock: 'MHz', disk_load: '%', net_load: 'Mbit/s' };
+const RANGES = { cpu_load: [0, 100], ram_load: [0, 100], gpu_load: [0, 100], gpu_temp: [35, 85], gpu_power: [20, 250], cpu_temp: [35, 90], cpu_power: [15, 140], total_power: [50, 400], board_temp: [25, 60], cpu_fan: [500, 2500], cpu_clock: [800, 5500], disk_load: [0, 100], net_load: [0, 200] };
 export const sensorName = (id) => SENSOR_NAMES[id] || id;
-const short = { cpu_load: 'CPU', ram_load: 'RAM', gpu_load: 'GPU', gpu_temp: 'GPU °C', gpu_power: 'GPU W', cpu_temp: 'CPU °C', cpu_power: 'CPU W', total_power: 'Watts', board_temp: 'Placa °C', cpu_fan: 'Fan' };
+const short = { cpu_load: 'CPU', ram_load: 'RAM', gpu_load: 'GPU', gpu_temp: 'GPU °C', gpu_power: 'GPU W', cpu_temp: 'CPU °C', cpu_power: 'CPU W', total_power: 'Watts', board_temp: 'Placa °C', cpu_fan: 'Fan', cpu_clock: 'MHz', disk_load: 'Disco', net_load: 'Rede' };
 export const sensorShort = (id) => short[id] || id;
 
 const PRESETS = [
@@ -12,6 +12,7 @@ const PRESETS = [
   { title: 'GPU quente nas ventoinhas', sub: 'azul → roxo → vermelho', rule: { sensor: 'gpu_temp', zones: ['JRAINBOW1', 'JRAINBOW2'], colorLow: '#00B0FF', colorMid: '#7C4DFF', colorHigh: '#FF1744', alertAbove: 80 } },
   { title: 'Watts no gabinete', sub: 'turquesa → magenta', rule: { sensor: 'gpu_power', zones: ['JRGB1', 'JRGB2'], colorLow: '#1DE9B6', colorMid: null, colorHigh: '#FF00E5' } },
   { title: 'CPU quente no gabinete', sub: 'temperatura real da CPU', rule: { sensor: 'cpu_temp', zones: ['JRAINBOW2'], colorLow: '#2979FF', colorMid: '#FFAB00', colorHigh: '#FF1744', alertAbove: 85 } },
+  { title: 'Rede na fita', sub: 'download/upload em tempo real', rule: { sensor: 'net_load', zones: ['JRAINBOW2'], colorLow: '#0D47A1', colorMid: '#00E5FF', colorHigh: '#FFFFFF' } },
   { title: 'RAM no brilho', sub: 'a fita acende conforme a memória', rule: { sensor: 'ram_load', zones: ['JRAINBOW2'], mode: 'brightness', colorLow: '#000000', colorMid: null, colorHigh: '#7C6CFF' } },
 ];
 
@@ -48,14 +49,15 @@ export function createReactions(h) {
     const card = $('#advancedCard'); if (!card || !adv) return;
     const running = adv.state === 'running', starting = adv.state === 'starting';
     card.className = 'glass adv-card ' + (running ? 'ok' : adv.state === 'error' ? 'err' : '');
-    $('#advTitle').textContent = running ? 'Sensores avançados ativos' : starting ? 'Iniciando sensores avançados…' : 'Sensores avançados da CPU e placa-mãe';
-    $('#advText').textContent = running ? 'LibreHardwareMonitor embutido lendo temperatura e watts da CPU, placa-mãe e ventoinha.'
+    $('#advTitle').textContent = running ? 'Sensores avançados ativos' : starting ? 'Iniciando sensores avançados…' : adv.state === 'error' ? 'Sensores avançados com problema' : 'Sensores avançados da CPU e placa-mãe (experimental)';
+    $('#advText').textContent = running ? (adv.detail || 'LibreHardwareMonitor embutido lendo temperatura e watts da CPU, placa-mãe e ventoinha.')
       : adv.state === 'error' ? adv.detail || 'Os sensores avançados pararam.'
       : (adv.configured ? 'Configurados — iniciam sozinhos quando uma reação ou esta página precisa deles.' : 'Temperatura e watts reais da CPU, temperatura da placa-mãe e ventoinha, lidos pelo LibreHardwareMonitor embutido no Lume. Uma autorização de administrador ' + (adv.driver ? 'registra o processo de sensores.' : 'instala o driver oficial PawnIO e registra o processo de sensores.'));
     const btn = $('#advAction');
     btn.hidden = running || starting || (adv.configured && adv.state !== 'error');
     btn.querySelector('span').textContent = adv.state === 'error' && adv.configured ? 'Reconfigurar' : 'Ativar sensores avançados';
     $('#advRemove').hidden = !adv.configured;
+    $('#advLog').hidden = !(adv.state === 'error' || adv.detail);
   }
 
   // ---------- sensors ----------
@@ -192,6 +194,7 @@ export function createReactions(h) {
       try { await call('sensorsSetup', {}, 'Sensores avançados ativados. As leituras começam em instantes.'); } catch { /* toast shown */ }
       btn.disabled = false;
     });
+    $('#advLog').addEventListener('click', () => call('open', { what: 'log' }).catch(() => {}));
     $('#advRemove').addEventListener('click', () => call('sensorsRemove', {}, 'Sensores avançados desativados.').catch(() => {}));
     $('#reactionsToggle').addEventListener('change', (e) => call('reactionsEnabled', { on: e.target.checked }, e.target.checked ? 'Reações ativadas.' : 'Reações desligadas. As zonas voltaram às cores anteriores.').catch(() => {}));
     $('#presetRow').addEventListener('click', (e) => {

@@ -27,5 +27,6 @@ if (Get-Process -Name LumeRGB -ErrorAction SilentlyContinue) { throw 'Feche o Lu
 & $compilerPath "@$PSScriptRoot\build.rsp" "/out:$output" "/win32icon:$PSScriptRoot\lume.ico" "/lib:$libDirectory" $sources
 if ($LASTEXITCODE -ne 0) { throw 'A compilação falhou. Copie as mensagens acima e envie para análise.' }
 if ($libDirectory -ne $appDirectory) { Copy-Item (Join-Path $libDirectory '*.dll') $appDirectory -Force }
+Copy-Item (Join-Path $PSScriptRoot 'LumeRGB.exe.config') $appDirectory -Force
 Write-Output ""
 Write-Output "Compilado com sucesso: $output"
