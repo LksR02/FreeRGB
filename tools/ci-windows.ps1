@@ -18,7 +18,8 @@ $refs = '/reference:System.Drawing.dll', '/reference:System.Runtime.Serializatio
 
 function Invoke-Test([string]$name, [string[]]$extra) {
     $exe = Join-Path $bin "$name.exe"
-    & $csc /nologo /langversion:5 /platform:x64 $refs $extra "/out:$exe" $core (Join-Path $src "tests\$name.cs")
+    # csc applies /out: to the source files that follow it, so it must come before every .cs file.
+    & $csc /nologo /langversion:5 /platform:x64 "/out:$exe" $refs $extra $core (Join-Path $src "tests\$name.cs")
     if ($LASTEXITCODE -ne 0) { throw "Falha ao compilar $name." }
     $output = & $exe 2>&1
     $code = $LASTEXITCODE
