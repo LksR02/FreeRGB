@@ -17,7 +17,7 @@ namespace LumeRgb
 {
     static class Program
     {
-        public const string Version = "3.4";
+        public const string Version = "3.5";
         static readonly string[] Commands = { "show", "toggle", "on", "off" };
         public static string EventName(string command) { return "Local\\LumeRGBStandalone." + command; }
 
@@ -107,7 +107,14 @@ namespace LumeRgb
             Service = LumeService.CreateDefault();
             Widgets = new WidgetManager(this);
             Sensors = new SensorHub();
-            Advanced = new AdvancedSensors();
+            Advanced = new AdvancedSensors(Service.Settings.AdvancedPaused);
+            if (Advanced.EndedBadlyLastTime && !Service.Settings.AdvancedPaused)
+            {
+                // The last session ended (crash, freeze, forced close) while the elevated helper was running:
+                // keep the Lume usable and let the user decide whether to try again.
+                try { Service.Mutate(s => s.AdvancedPaused = true); } catch { }
+                Advanced.SetPaused(true, "Pausados automaticamente: o Lume fechou de forma inesperada enquanto eles estavam ativos. Clique em Retomar para tentar de novo.");
+            }
             Sensors.Advanced = Advanced;
             Advanced.Changed += delegate { Post(OnStateChanged); };
             Reactions = new ReactiveEngine(Service, Sensors);

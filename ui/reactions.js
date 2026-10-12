@@ -47,15 +47,17 @@ export function createReactions(h) {
   }
   function renderAdvanced(adv) {
     const card = $('#advancedCard'); if (!card || !adv) return;
-    const running = adv.state === 'running', starting = adv.state === 'starting';
+    const running = adv.state === 'running', starting = adv.state === 'starting', paused = !!adv.paused;
     card.className = 'glass adv-card ' + (running ? 'ok' : adv.state === 'error' ? 'err' : '');
-    $('#advTitle').textContent = running ? 'Sensores avançados ativos' : starting ? 'Iniciando sensores avançados…' : adv.state === 'error' ? 'Sensores avançados com problema' : 'Sensores avançados da CPU e placa-mãe (experimental)';
-    $('#advText').textContent = running ? (adv.detail || 'LibreHardwareMonitor embutido lendo temperatura e watts da CPU, placa-mãe e ventoinha.')
+    $('#advTitle').textContent = paused ? 'Sensores avançados pausados' : running ? 'Sensores avançados ativos' : starting ? 'Iniciando sensores avançados…' : adv.state === 'error' ? 'Sensores avançados com problema' : 'Sensores avançados da CPU e placa-mãe (experimental)';
+    $('#advText').textContent = paused ? (adv.detail || 'Pausados. O resto do Lume funciona normalmente; a temperatura da CPU vem da estimativa do Windows.') : running ? (adv.detail || 'LibreHardwareMonitor embutido lendo temperatura e watts da CPU, placa-mãe e ventoinha.')
       : adv.state === 'error' ? adv.detail || 'Os sensores avançados pararam.'
       : (adv.configured ? 'Configurados — iniciam sozinhos quando uma reação ou esta página precisa deles.' : 'Temperatura e watts reais da CPU, temperatura da placa-mãe e ventoinha, lidos pelo LibreHardwareMonitor embutido no Lume. Uma autorização de administrador ' + (adv.driver ? 'registra o processo de sensores.' : 'instala o driver oficial PawnIO e registra o processo de sensores.'));
     const btn = $('#advAction');
-    btn.hidden = running || starting || (adv.configured && adv.state !== 'error');
-    btn.querySelector('span').textContent = adv.state === 'error' && adv.configured ? 'Reconfigurar' : 'Ativar sensores avançados';
+    btn.hidden = !paused && (running || starting || (adv.configured && adv.state !== 'error'));
+    btn.dataset.mode = paused && adv.configured ? 'resume' : 'setup';
+    if (!btn.disabled) btn.querySelector('span').textContent = paused && adv.configured ? 'Retomar sensores avançados' : adv.state === 'error' && adv.configured ? 'Reconfigurar' : 'Ativar sensores avançados';
+    $('#advPause').hidden = paused || !adv.configured;
     $('#advRemove').hidden = !adv.configured;
     $('#advLog').hidden = !(adv.state === 'error' || adv.detail);
   }
@@ -190,12 +192,15 @@ export function createReactions(h) {
       clearTimeout(rhythmTimer); rhythmTimer = setTimeout(() => call('prefs', { reactiveSmoothing: v }).catch(() => {}), 200);
     });
     $('#advAction').addEventListener('click', async (e) => {
-      const btn = e.currentTarget; btn.disabled = true; btn.querySelector('span').textContent = 'Aguardando autorização…';
+      const btn = e.currentTarget;
+      if (btn.dataset.mode === 'resume') { call('sensorsPause', { paused: false }, 'Sensores avançados retomados.').catch(() => {}); return; }
+      btn.disabled = true; btn.querySelector('span').textContent = 'Aguardando autorização…';
       try { await call('sensorsSetup', {}, 'Sensores avançados ativados. As leituras começam em instantes.'); } catch { /* toast shown */ }
       btn.disabled = false;
     });
     $('#advLog').addEventListener('click', () => call('open', { what: 'log' }).catch(() => {}));
     $('#advDiag').addEventListener('click', () => call('diagnostics', {}, 'Diagnóstico copiado: cole numa mensagem.').catch(() => {}));
+    $('#advPause').addEventListener('click', () => call('sensorsPause', { paused: true }, 'Sensores avançados pausados.').catch(() => {}));
     $('#advRemove').addEventListener('click', () => call('sensorsRemove', {}, 'Sensores avançados desativados.').catch(() => {}));
     $('#reactionsToggle').addEventListener('change', (e) => call('reactionsEnabled', { on: e.target.checked }, e.target.checked ? 'Reações ativadas.' : 'Reações desligadas. As zonas voltaram às cores anteriores.').catch(() => {}));
     $('#presetRow').addEventListener('click', (e) => {

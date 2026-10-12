@@ -266,6 +266,8 @@ namespace LumeRgb
             {
                 case "setup": return "Ative os sensores avançados no topo da página Reações (pede permissão de administrador uma única vez).";
                 case "starting": return "Iniciando os sensores avançados…";
+                case "paused": return "Sensores avançados pausados. Retome no topo da página Reações.";
+                case "off": return "Os sensores avançados iniciam quando uma reação ou a página Reações precisa deles.";
                 case "running": return "Este PC não informou esta leitura.";
                 default: return Advanced.Detail ?? "Sensores avançados indisponíveis.";
             }

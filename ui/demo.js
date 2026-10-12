@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.4', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.5', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),
@@ -129,6 +129,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
   Object.assign(commands, {
     sensorsWatch: ({ on }) => { watching = on; return sensors(); },
     sensorsSetup: async () => { state.advanced = { state: 'starting', detail: null, configured: true, driver: true }; push(); await wait(1200); state.advanced.state = 'running'; push(); return true; },
+    sensorsPause: (a) => { state.advanced = { ...state.advanced, paused: !!a.paused, state: a.paused ? 'paused' : 'running', detail: null }; push(); return true; },
     sensorsRemove: () => { state.advanced = { state: 'setup', detail: null, configured: false, driver: true }; push(); return true; },
     reactionsEnabled: ({ on }) => { state.reactions.enabled = on; push(); return true; },
     reactionSave: (rule) => {

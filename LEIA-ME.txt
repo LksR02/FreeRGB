@@ -1,4 +1,21 @@
-﻿LUME RGB 3.4 — CORREÇÕES (TECLADO, RECONEXÃO, SENSORES) + DIAGNÓSTICO
+﻿LUME RGB 3.5 — SENSORES AVANÇADOS NÃO TRAVAM MAIS O APP
+
+CORRIGIDO NA 3.5
+• A janela consultava o Agendador de Tarefas do Windows (schtasks) e o
+  processo de sensores na própria linha da interface, segurando uma trava
+  que o resto do app também usava. Se o Windows demorasse ou o schtasks
+  travasse, o Lume inteiro congelava. Agora tudo isso roda numa linha
+  separada; a janela e as Reações só leem valores prontos e nunca esperam.
+• schtasks com limite de 10 s (antes podia esperar para sempre).
+• O processo de sensores abre em etapas (CPU, depois placa-mãe) com um vigia:
+  se o LibreHardwareMonitor travar, ele é encerrado sozinho; se travar na
+  placa-mãe, o Lume tenta de novo só com a CPU. Ele também fecha na hora
+  quando o Lume fecha, mesmo que o driver esteja preso. Leituras a cada 1 s.
+• Se o Lume fechar de forma inesperada (travou, foi encerrado à força) com
+  os sensores avançados ativos, eles ficam PAUSADOS na próxima abertura e o
+  resto do app funciona normalmente. Em Reações: "Retomar" ou "Pausar".
+
+LUME RGB 3.4 — CORREÇÕES (TECLADO, RECONEXÃO, SENSORES) + DIAGNÓSTICO
 
 CORRIGIDO NA 3.4
 • Se o teclado (ou a placa) falhasse uma única leitura, o Lume o desconectava

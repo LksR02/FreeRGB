@@ -216,6 +216,13 @@ namespace LumeRgb
                     Service.Mutate(s => s.Reactions = s.Reactions.Where(r => r.Id != Str(a, "id")).ToList()); app.Reactions.Refresh(); Service.NotifyChanged(); return Done(true);
                 case "sensorsSetup": return AdvancedSetup(false);
                 case "sensorsRemove": return AdvancedSetup(true);
+                case "sensorsPause":
+                    {
+                        bool pause = Bool(a, "paused");
+                        Service.Mutate(s => s.AdvancedPaused = pause);
+                        app.Advanced.SetPaused(pause, pause ? "Pausados por você. Temperatura da CPU volta a vir da estimativa do Windows." : null);
+                        Service.NotifyChanged(); return Done(true);
+                    }
                 case "diagnostics": return Diagnostics();
                 case "updateCheck": app.CheckForUpdates(true); return Done(true);
                 case "updateInstall": app.InstallUpdate(true); return Done(true);
@@ -226,6 +233,7 @@ namespace LumeRgb
         Task<object> AdvancedSetup(bool remove)
         {
             if (remove) app.Advanced.Stop();
+            else { try { Service.Mutate(s => s.AdvancedPaused = false); } catch { } app.Advanced.SetPaused(false, null); }
             return Task.Factory.StartNew(() =>
             {
                 bool ok = AdvancedSensors.RunSetup(remove);
@@ -384,7 +392,7 @@ namespace LumeRgb
                         { "alertAbove", r.AlertAbove }, { "enabled", r.Enabled } }).ToList() } } },
                 { "update", UpdateState() },
                 { "advanced", new Dictionary<string, object> { { "state", app.Advanced.State }, { "detail", app.Advanced.Detail },
-                    { "configured", app.Advanced.Configured }, { "driver", app.Advanced.DriverReady } } },
+                    { "configured", app.Advanced.Configured }, { "driver", app.Advanced.DriverReady }, { "paused", app.Advanced.Paused } } },
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
