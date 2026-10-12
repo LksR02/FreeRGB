@@ -35,6 +35,7 @@ namespace LumeRgb
         public string State { get; private set; }      // idle, checking, uptodate, available, downloading, building, ready, error
         public string Installed { get; private set; }
         public string InstalledDate { get; private set; }
+        public bool LocalBuild { get; private set; }
         public string Remote { get; private set; }
         public string RemoteDate { get; private set; }
         public string Error { get; private set; }
@@ -73,9 +74,10 @@ namespace LumeRgb
             {
                 if (!File.Exists(VersionFile)) return;
                 var data = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(VersionFile));
-                object commit, date;
+                object commit, date, local;
                 if (data.TryGetValue("commit", out commit)) Installed = Convert.ToString(commit);
                 if (data.TryGetValue("date", out date)) InstalledDate = Convert.ToString(date);
+                LocalBuild = data.TryGetValue("localBuild", out local) && local is bool && (bool)local;
             }
             catch (Exception e) { AppLog.Write("version.json: " + e.Message); }
         }

@@ -1,0 +1,25 @@
+﻿PASS detects five zones, initially on
+PASS decodes per-header effects
+PASS Desligar sets every zone to brightness 0
+PASS keyboard off keeps its effect
+PASS never writes the flash-save flag
+PASS state remembered on disk before switching off
+PASS Ligar turns everything back on
+PASS board restored exactly (effects, colors, brightness)
+PASS keyboard brightness and color restored
+PASS memory cleared after restoring
+PASS toggle from on -> off
+PASS toggle from off -> on
+PASS rapid toggles end in the last requested state
+PASS rapid toggles do not replay every click
+PASS partial change while off gives mixed state
+PASS applied zone dropped from power memory
+PASS Ligar keeps the explicit change and restores the rest
+PASS scene applies colour + effect to every zone
+PASS keyboard falls back to a supported effect
+PASS profile save/apply
+PASS rename zone
+PASS widget persisted
+PASS invalid widget rejected and rolled back
+PASS loads settings from the previous version
+ALL SERVICE TESTS PASSED

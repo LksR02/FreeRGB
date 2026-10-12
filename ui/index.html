@@ -170,8 +170,8 @@
             <div class="range-labels"><span>Instantânea</span><span>Suave</span><span>Bem lenta</span></div>
           </div>
           <div class="rhythm-wide">
-            <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Teclado sem piscar (modo ao vivo do próprio teclado)</span></label>
-            <p class="hint">Modo do teclado nas reações: <b id="kbMode">—</b></p>
+            <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Usar o canal ao vivo confirmado no teste</span></label>
+            <p class="hint">Modo de transição do teclado: <b id="kbMode">—</b></p>
             <div class="kb-test">
               <button class="btn primary" id="kbLampTest"><svg><use href="#i-bolt"/></svg><span>Testar Iluminação Dinâmica do Windows</span></button>
               <div class="kb-ask" id="kbLampAsk" hidden>
@@ -180,15 +180,13 @@
                 <button class="chip-btn" data-lamp="nolamp">Não</button>
               </div>
             </div>
-            <p class="hint">O caminho em tempo real que o fabricante usa neste teclado: o Lume liga a “Iluminação Dinâmica” no X68HE e manda a cor inteira num único comando, sem reiniciar efeito (sem piscar). Se as cores mudarem sozinhas depois, desligue “Usar a Iluminação Dinâmica nos meus dispositivos” em <button class="link" data-open="lighting">Configurações do Windows › Iluminação dinâmica</button>.</p>
+            <p class="hint">Alguns firmwares oferecem Iluminação Dinâmica; outros respondem aos comandos, mas não mostram as cores. O Lume só usa esse canal depois da sua confirmação visual. O teste restaura a iluminação anterior. <button class="link" data-open="lighting">Abrir Iluminação dinâmica do Windows</button>.</p>
             <div class="kb-test">
-              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar quadros ao vivo (10 s)</span></button>
+              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar transição azul → vermelho (10 s)</span></button>
               <div class="kb-ask" id="kbAsk" hidden>
-                <span>Qual cor o teclado mostrou?</span>
-                <button class="chip-btn" data-seen="red">Vermelho</button>
-                <button class="chip-btn" data-seen="green">Verde</button>
-                <button class="chip-btn" data-seen="both">Os dois</button>
-                <button class="chip-btn" data-seen="none">Nenhum (só azul ou nada)</button>
+                <span>A transição passou por magenta sem apagar ou piscar?</span>
+                <button class="chip-btn" data-seen="smooth">Sim, ficou suave</button>
+                <button class="chip-btn" data-seen="none">Não funcionou</button>
               </div>
             </div>
           </div>

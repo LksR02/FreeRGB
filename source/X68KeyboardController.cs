@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 // Original Windows implementation of X68HE's USB lighting commands, observed
 // in the manufacturer's qmk.top web configurator (source and hashes in evidence).
-// GET_LEDPARAM 0x87, SET_LEDPARAM 0x07 and, for live colours, the manufacturer's Dynamic RGB commands
-// (0x8F/0x94 queries, 0x14 = Windows Dynamic Lighting flag, 0x0F colour frames). No key maps,
+// GET_LEDPARAM 0x87, SET_LEDPARAM 0x07 and GET_USB_VERSION 0x8F.
+// Live Screen colour 0x0E, captured from the supplied factory helper for device ID 2472. No key maps,
 // Hall-effect calibration, firmware, reset or analog-stream commands are sent.
 using System;
 using System.Collections.Generic;
@@ -107,6 +107,24 @@ namespace LumeRgb
             }
         }
         public byte[] GetReportSnapshot() { lock (gate) { RequireConnected(); return (byte[])latest.Clone(); } }
+        internal static byte[] BuildRestoreReport(byte[] snapshot)
+        {
+            ValidateReport(snapshot);
+            byte[] report = new byte[ReportLength]; report[1] = 7;
+            Buffer.BlockCopy(snapshot, 2, report, 2, 7);
+            int sum = 0; for (int i = 1; i <= 8; i++) sum += report[i];
+            report[9] = (byte)(255 - (sum & 255));
+            X68WindowsHidTransport.ValidateOutgoingReport(report); return report;
+        }
+        internal void RestoreLighting(byte[] snapshot)
+        {
+            lock (gate)
+            {
+                byte[] report = BuildRestoreReport(snapshot); RequireConnected(); StopStreaming();
+                transport.SetFeature(report); Thread.Sleep(100); latest = ReadReport();
+                if (!LightingFieldsEqual(snapshot, latest)) throw new IOException("O teclado não confirmou a restauração da iluminação.");
+            }
+        }
         internal static RgbZone DecodeZone(byte[] report)
         {
             ValidateReport(report);
@@ -190,10 +208,9 @@ namespace LumeRgb
         }
         // ---------- live colour streaming (no blinking) ----------
         // SET_LEDPARAM restarts the keyboard's effect on every command, which is visible as a blink.
-        // The manufacturer's own "Dynamic RGB" app (Rongyuan) instead switches the keyboard to its native
-        // "Screen color" effect once and then streams frames with command 0x0F: a 21 x 6 grid
-        // (126 cells, RGB) split in 56-byte chunks, about every 30 ms. Frames never restart the effect.
-        public const int SyncEffect = 21, SyncColumns = 21, SyncRows = 6, SyncChunk = 56;
+        // The factory helper sends one RGB triplet through SET_WINDOS 0x0E.
+        // Sending 0x0F grid chunks on firmware 0x0303 did not change the LEDs.
+        public const int SyncEffect = 21;
         public bool Streaming { get { lock (gate) return latest != null && latest[2] == SyncEffect; } }
         // Set when this keyboard refused the live mode; callers then fall back to ApplyFast for this connection.
         public bool StreamUnsupported { get; set; }
@@ -208,6 +225,8 @@ namespace LumeRgb
         public const int FramePeriodMs = 33, StreamHoldSeconds = 3;
         byte[] liveFrame; DateTime lastStreamCall; int streamGeneration; bool streaming;
         public bool IsStreaming { get { lock (gate) return streaming; } }
+        bool holdStream;
+        public bool HoldStream { get { lock (gate) return holdStream; } set { lock (gate) holdStream = value; } }
         public int FramesSent { get; private set; }
         public void Stream(Color color, int brightnessPercent)
         {
@@ -224,6 +243,9 @@ namespace LumeRgb
                         StopStreaming();
                         byte[] mode = BuildSyncMode(latest); // full hardware brightness; dimming is done in the frames
                         transport.SetFeature(mode);
+                        // Feed the initial colour immediately: waiting for the mode
+                        // query before sending it leaves Screen color without a frame.
+                        SendFrame(BuildLiveReport(color, brightnessPercent));
                         // Like Apply: the firmware may answer with the old state for a moment. Confirm the switch.
                         Stopwatch timer = Stopwatch.StartNew();
                         do { Thread.Sleep(60); latest = ReadReport(); } while (latest[2] != SyncEffect && timer.ElapsedMilliseconds < 1500);
@@ -240,7 +262,7 @@ namespace LumeRgb
                         byte[] plain = BuildReport(latest, new ZoneSetting { Key = ZoneKey, Color = Color.FromArgb(latest[6], latest[7], latest[8]), BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 });
                         transport.SetFeature(plain); for (int i = 2; i <= 8; i++) latest[i] = plain[i];
                     }
-                    liveFrame = UniformFrame(color, brightnessPercent);
+                    liveFrame = BuildLiveReport(color, brightnessPercent);
                     lastStreamCall = DateTime.UtcNow;
                     SendFrame(liveFrame);
                     if (!streaming)
@@ -268,26 +290,27 @@ namespace LumeRgb
                 {
                     if (generation != streamGeneration) return;
                     // Nobody refreshed the colour for a while (reactions off, app closing): stop streaming.
-                    if (transport == null || liveFrame == null || (DateTime.UtcNow - lastStreamCall).TotalSeconds > StreamHoldSeconds) { streaming = false; streamGeneration++; return; }
+                    if (transport == null || liveFrame == null || (!HoldStream && (DateTime.UtcNow - lastStreamCall).TotalSeconds > StreamHoldSeconds)) { streaming = false; streamGeneration++; return; }
                     try { SendFrame(liveFrame); }
                     catch (Exception) { streaming = false; streamGeneration++; Disconnect(); return; }
                 }
             }
         }
         // Caller holds the gate.
-        void StopStreaming() { if (streaming) { streaming = false; streamGeneration++; } }
+        void StopStreaming() { HoldStream = false; if (streaming) { streaming = false; streamGeneration++; } }
         public void EndStream() { lock (gate) StopStreaming(); }
-        void SendFrame(byte[] frame) { foreach (var chunk in BuildSyncFrame(frame)) transport.SetFeature(chunk); FramesSent++; }
-        static byte[] UniformFrame(Color color, int brightnessPercent)
+        void SendFrame(byte[] frame) { transport.SetFeature(frame); FramesSent++; }
+        // Captured factory packet (Windows report ID included):
+        // [0, 0E, R, G, B, 0, 0, 0, Bit7 checksum], remaining bytes zero.
+        // The native helper passes a padded 67-byte allocation to hidapi; this
+        // interface declares 65 bytes and all meaningful bytes are in the first nine.
+        internal static byte[] BuildLiveReport(Color color, int brightnessPercent)
         {
             double k = Math.Max(0, Math.Min(100, brightnessPercent)) / 100.0;
             byte r = (byte)Math.Round(color.R * k), g = (byte)Math.Round(color.G * k), b = (byte)Math.Round(color.B * k);
-            byte[] frame = new byte[SyncColumns * SyncRows * 3];
-            for (int i = 0; i < frame.Length; i += 3) { frame[i] = r; frame[i + 1] = g; frame[i + 2] = b; }
-            return frame;
+            return BuildCommand(0x0E, r, g, b);
         }
-        // Same start-up as the manufacturer's Dynamic RGB: read the device info (0x8F) and the Windows Dynamic
-        // Lighting flag (0x94), kept for the diagnostics report. Nothing is changed here.
+        // Read the known device information query (0x8F) for diagnostics.
         void Handshake()
         {
             var info = new StringBuilder();
@@ -295,27 +318,20 @@ namespace LumeRgb
             {
                 byte[] device = Command(BuildCommand(0x8F), true);
                 info.Append("0x8F: " + Hex(device, 1, 12));
-                byte[] dynamic = Command(BuildCommand(0x94), true);
-                info.Append(" | 0x94: " + Hex(dynamic, 1, 6));
             }
             catch (Exception e) { info.Append(" | handshake: " + e.Message); }
             StreamInfo = info.ToString();
             latest = ReadReport();
         }
-        // The keyboard's "Microsoft Dynamic Light" flag (0x94 read, 0x14 write): when on, the keyboard also shows up in
-        // Windows as a Dynamic Lighting (HID LampArray) device, which takes live colours without restarting any effect.
+        // The supplied X68 factory driver does not establish any LampArray toggle.
+        // Keep the API for callers, without issuing unknown 0x94/0x14 commands.
         public bool? DynamicLighting()
         {
-            lock (gate)
-            {
-                RequireConnected(); StopStreaming();
-                byte[] reply = Command(BuildCommand(0x94), true);
-                return reply != null && reply.Length == ReportLength && reply[1] == 0x94 ? reply[2] == 1 : (bool?)null;
-            }
+            return null;
         }
         public void SetDynamicLighting(bool on)
         {
-            lock (gate) { RequireConnected(); StopStreaming(); Command(BuildCommand(0x14, (byte)(on ? 1 : 0)), false); Thread.Sleep(100); }
+            throw new NotSupportedException("O driver de fábrica do X68HE não define um comando para ativar LampArray.");
         }
         byte[] Command(byte[] report, bool read)
         {
@@ -350,25 +366,6 @@ namespace LumeRgb
             int sum = 0; for (int i = 1; i <= 8; i++) sum += report[i];
             report[9] = (byte)(255 - (sum & 255));
             return report;
-        }
-        // Packet layout from the vendor app: 8-byte header [0x0F, 0x01, chunk, 56, last, 0, 0, checksum]
-        // (Bit7 checksum over header bytes 0..6) followed by up to 56 colour bytes.
-        internal static List<byte[]> BuildSyncFrame(byte[] rgb)
-        {
-            if (rgb == null || rgb.Length != SyncColumns * SyncRows * 3) throw new ArgumentException("Quadro de cores X68HE inválido.");
-            var packets = new List<byte[]>();
-            int count = (rgb.Length + SyncChunk - 1) / SyncChunk;
-            for (int chunk = 0; chunk < count; chunk++)
-            {
-                byte[] report = new byte[ReportLength];
-                report[1] = 0x0F; report[2] = 1; report[3] = (byte)chunk; report[4] = SyncChunk; report[5] = (byte)(chunk == count - 1 ? 1 : 0);
-                int length = Math.Min(SyncChunk, rgb.Length - chunk * SyncChunk);
-                Buffer.BlockCopy(rgb, chunk * SyncChunk, report, 9, length);
-                int sum = 0; for (int i = 1; i <= 7; i++) sum += report[i];
-                report[8] = (byte)(255 - (sum & 255));
-                packets.Add(report);
-            }
-            return packets;
         }
         internal static bool LightingFieldsEqual(byte[] expected, byte[] actual)
         {
@@ -435,26 +432,26 @@ namespace LumeRgb
         }
         internal static void ValidateOutgoingReport(byte[] report)
         {
-            if (report == null || report.Length != 65 || report[0] != 0 || (report[1] != 0x87 && report[1] != 7 && report[1] != 0x0F &&
-                report[1] != 0x8F && report[1] != 0x94 && report[1] != 0x14))
+            if (report == null || report.Length != 65 || report[0] != 0 || (report[1] != 0x87 && report[1] != 7 && report[1] != 0x0E &&
+                report[1] != 0x8F))
                 throw new ArgumentException("Somente comandos de parâmetros de luz X68HE são suportados.");
-            if (report[1] == 0x8F || report[1] == 0x94 || report[1] == 0x14)
+            if (report[1] == 0x8F)
             {
-                // Read-only queries (device info, Windows Dynamic Lighting flag) and switching that flag off.
+                // Read-only device information.
                 int check = 0; for (int i = 1; i <= 7; i++) check += report[i];
                 if (report[8] != (byte)(255 - (check & 255))) throw new ArgumentException("Checksum X68HE inválido.");
-                if (report[1] == 0x14 && report[2] > 1) throw new ArgumentException("Comando X68HE inválido.");
-                for (int i = report[1] == 0x14 ? 3 : 2; i < report.Length; i++) if (i != 8 && report[i] != 0) throw new ArgumentException("Comando X68HE inválido.");
+                for (int i = 2; i < report.Length; i++) if (i != 8 && report[i] != 0) throw new ArgumentException("Comando X68HE inválido.");
                 return;
             }
-            if (report[1] == 0x0F)
+            if (report[1] == 0x0E)
             {
-                // Live colour frame: header, Bit7 checksum, colour bytes only.
+                // Live uniform colour, Bit7 checksum; no effect restart.
                 int check = 0; for (int i = 1; i <= 7; i++) check += report[i];
-                if (report[2] != 1 || report[3] > 15 || report[4] != X68KeyboardController.SyncChunk || report[5] > 1 || report[6] != 0 || report[7] != 0 ||
+                if (report[5] != 0 || report[6] != 0 || report[7] != 0 ||
                     report[8] != (byte)(255 - (check & 255)))
                     throw new ArgumentException("Quadro de cores X68HE inválido.");
-                return; // bytes 9..64 are exactly the 56 colour bytes
+                for (int i = 9; i < report.Length; i++) if (report[i] != 0) throw new ArgumentException("Quadro de cores X68HE inválido.");
+                return;
             }
             int end = report[1] == 0x87 ? 7 : 8, sum = 0;
             for (int i = 1; i <= end; i++) sum += report[i];

@@ -101,6 +101,9 @@ class ServiceTests
         Check(rejected && service.Settings.Widgets.Count == 1, "invalid widget rejected and rolled back");
         File.WriteAllText(path + ".old.json", "{\"Profiles\":[],\"Aliases\":[],\"Palette\":[\"#112233\"],\"AlwaysOnTop\":true}");
         var old = SettingsStore.Load(path + ".old.json"); Check(old.Widgets != null && old.Palette.Count == 1 && old.AlwaysOnTop, "loads settings from the previous version");
+        service.Apply(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = Color.FromArgb(1, 2, 3), BrightnessPercent = 25, Effect = "Static", SpeedPercent = 50 } }).Wait();
+        service.SetPower(false).Wait(); service.SetPower(true).Wait();
+        Check(service.Snapshot().Zones.First(z => z.Key == "X68HE").CurrentColor.ToArgb() == Color.FromArgb(1, 2, 3).ToArgb(), "power restore preserves an explicitly saved dark colour instead of changing it to white");
         service.Dispose();
         Console.WriteLine("ALL SERVICE TESTS PASSED");
     }

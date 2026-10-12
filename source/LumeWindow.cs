@@ -274,6 +274,8 @@ namespace LumeRgb
         }
         void SetPreferences(Dictionary<string, object> a)
         {
+            if (a.ContainsKey("keyboardLive") && Bool(a, "keyboardLive") && Service.Settings.KeyboardLiveVariant == null)
+                throw new InvalidOperationException("Faça o teste do teclado e confirme as cores antes de ativar o canal ao vivo. Alguns firmwares apagam os LEDs nesse modo.");
             if (a.ContainsKey("startWithWindows")) SystemIntegration.SetStartWithWindows(Bool(a, "startWithWindows"));
             Service.Mutate(s =>
             {
@@ -400,7 +402,7 @@ namespace LumeRgb
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
-                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", !settings.KeyboardCompat }, { "keyboardMode", settings.KeyboardCompat ? "classic" : settings.KeyboardLiveVariant ?? "screen" }, { "startWithWindows", SafeStartup() } } },
+                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", Service.KeyboardLive }, { "keyboardMode", Service.KeyboardLive ? settings.KeyboardLiveVariant : "classic" }, { "startWithWindows", SafeStartup() } } },
             };
         }
         Dictionary<string, object> UpdateState()

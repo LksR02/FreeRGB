@@ -11,6 +11,32 @@ using System.Threading;
 
 namespace LumeRgb
 {
+    public static class ColorTransition
+    {
+        // Interpolate hue with HSV value, avoiding the dark purple midpoint of
+        // an RGB blue-to-red crossfade. Explicit black/brightness targets still dim.
+        public static Color Mix(Color a, Color b, double t)
+        {
+            t = Math.Max(0, Math.Min(1, t));
+            if (t == 0) return a; if (t == 1) return b;
+            double av = Math.Max(a.R, Math.Max(a.G, a.B)) / 255.0;
+            double bv = Math.Max(b.R, Math.Max(b.G, b.B)) / 255.0;
+            double amin = Math.Min(a.R, Math.Min(a.G, a.B)) / 255.0;
+            double bmin = Math.Min(b.R, Math.Min(b.G, b.B)) / 255.0;
+            double sa = av == 0 ? 0 : (av - amin) / av, sb = bv == 0 ? 0 : (bv - bmin) / bv;
+            double ha = a.GetHue(), hb = b.GetHue();
+            if (sa < 0.0001) ha = hb; if (sb < 0.0001) hb = ha;
+            double delta = (hb - ha + 540) % 360 - 180;
+            double h = (ha + delta * t + 360) % 360, s = sa + (sb - sa) * t, v = av + (bv - av) * t;
+            double c = v * s, x = c * (1 - Math.Abs(h / 60 % 2 - 1)), m = v - c;
+            double r = 0, g = 0, blue = 0;
+            if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+            else if (h < 180) { g = c; blue = x; } else if (h < 240) { g = x; blue = c; }
+            else if (h < 300) { r = x; blue = c; } else { r = c; blue = x; }
+            return Color.FromArgb((int)Math.Round((r + m) * 255), (int)Math.Round((g + m) * 255), (int)Math.Round((blue + m) * 255));
+        }
+    }
+
     public sealed class ReactiveEngine : IDisposable
     {
         readonly LumeService service;
@@ -84,7 +110,7 @@ namespace LumeRgb
         }
         static Color Mix(Color a, Color b, double t)
         {
-            return Color.FromArgb((int)Math.Round(a.R + (b.R - a.R) * t), (int)Math.Round(a.G + (b.G - a.G) * t), (int)Math.Round(a.B + (b.B - a.B) * t));
+            return ColorTransition.Mix(a, b, t);
         }
         // What a rule asks for at a given sensor value (the page preview uses the same maths in JS).
         public static ZoneSetting Evaluate(ReactiveRule rule, string key, double value)

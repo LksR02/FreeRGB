@@ -1,0 +1,40 @@
+Renderer ScreenColor entry — bounded static investigation, 2026-10-12
+
+Evidence source: resources/app/dist/js/index.b078bf5f.js in supplied driver.
+SHA256:5A0A28C49E629E8DC6E517C7C99008C88120F5CBBE9676E54074B4EB1CE3C476
+Selected exact snippets with character offsets are saved in
+renderer-screen-entry-snippets.json. No target execution occurred.
+
+OBSERVATIONS
+1. Keyboard class fB.___checkChanges stops native light via Me.stopLight,
+   executes the setting change, then calls Me.startLight. checkLightChange
+   executes dev.setLightSetting, so ScreenColor mode21 LEDPARAM is written
+   before native streaming is started. Device initialization likewise calls
+   Me.startLight after reading device settings.
+2. Me.startLight maps LightScreenColor to helper enum Screen=1;
+   LightMusicFollow2 to Music2=0. Other=2 is used to stop light.
+3. Native helper RPC client.setLightType receives driver.SetLight protobuf:
+   field1 devicePath(string), field2 lightType(enum), field3 screen_id(uint32),
+   field4 dangleDevType(enum). USB/BT connection selects DangleDevTypeNone=0;
+   usual renderer start calls select screenId0. Other enum values Keyboard1
+   and Mouse2 apply to dongle connections.
+4. No cmd_list or HID report ID/protocol table is serialized in SetLight.
+   Case-insensitive bounded search over supplied app JS/JSON/INI/XML/TXT/YAML
+   found no cmd-list configuration and no SET_WINDOS/SET_AUDIO symbols outside
+   the unrelated mouse protocol chunk c5a66cc9.js.
+5. Renderer direct WebHID fallback sends feature report ID0, payload64 bytes.
+   Bit7 checksum sets payload[7]=255-(sum(payload[0..6]) &255).
+   Bit8 checksum sets payload[8]=255-(sum(payload[0..7]) &255).
+   Native sendMsg RPC receives checksum enum Bit7=0,Bit8=1,None=2.
+6. This renderer contains no live ScreenColor frame writer. It requests the
+   native helper to start that behavior, so exact0x0F framing must be taken
+   from the helper's native implementation.
+
+INFERENCE
+The helper maintains the actual device protocol table internally or obtains
+it outside the examined renderer resources. Reconstructing it from renderer
+constants alone cannot establish packet length, header, or matrix semantics.
+
+UNKNOWN
+Native per-model cmd_list, FEA_CMD_SET_WINDOS/AUDIO selection, ScreenColor frame
+header/payload/checksum, and hardware acceptance remain outside this JS scope.

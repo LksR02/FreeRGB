@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 // Advanced sensors (CPU temperature/power, motherboard temperature, CPU fan) read with the embedded
 // LibreHardwareMonitorLib (MPL-2.0). Those readings need administrator rights and the PawnIO
 // driver, so they run in a small elevated copy of LumeRGB.exe ("--sensor-host"):
@@ -58,6 +58,19 @@ namespace LumeRgb
             }
         }
         public static bool Exists() { string o; try { return Schtasks("/query /tn \"" + Name + "\"", out o) == 0; } catch { return false; } }
+        public static bool PointsTo(string executable)
+        {
+            try
+            {
+                string xml;
+                if (Schtasks("/query /tn \"" + Name + "\" /xml", out xml) != 0) return false;
+                var document = new System.Xml.XmlDocument { XmlResolver = null };
+                document.LoadXml(xml);
+                var command = document.SelectSingleNode("//*[local-name()='Actions']/*[local-name()='Exec']/*[local-name()='Command']");
+                return command != null && String.Equals(Path.GetFullPath(command.InnerText.Trim().Trim('"')), Path.GetFullPath(executable), StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
         public static bool Run(out string output) { try { return Schtasks("/run /tn \"" + Name + "\"", out output) == 0; } catch (Exception e) { output = e.Message; return false; } }
         public static bool Delete(out string output)
         {
@@ -208,122 +221,198 @@ namespace LumeRgb
     // ---------- elevated host ----------
     public static class SensorHostProgram
     {
-        // Separate, non-inlined: a missing/broken library dependency then fails here, inside the try.
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        static HardwareSource CreateSource() { return new HardwareSource(); }
-        static string OneLine(string s) { return (s ?? "").Replace("\r", " ").Replace("\n", " "); }
-
-        // What the host is doing right now, so the watchdog can tell a stuck driver call from normal work.
-        static readonly object stageGate = new object();
-        static string stage; static DateTime stageAt;
-        static void Stage(string name) { lock (stageGate) { stage = name; stageAt = DateTime.UtcNow; } }
-
+        // Only the elevated broker owns the app pipe. Driver calls run in separately
+        // supervised children, so a stuck SuperIO cannot take CPU readings down.
         public static int Run()
         {
             try
             {
-                using (var pipe = new NamedPipeClientStream(".", SensorTask.PipeName, PipeDirection.InOut))
+                using (var pipe = new NamedPipeClientStream(".", SensorTask.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+                using (var stop = new ManualResetEvent(false))
                 {
                     pipe.Connect(20000);
-                    var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-                    var reader = new StreamReader(pipe, Encoding.UTF8);
                     var writeGate = new object();
-                    // The app is gone (pipe closed): leave at once, whatever LibreHardwareMonitor is doing.
-                    Action<string> send = line => { lock (writeGate) { try { writer.WriteLine(line); } catch { Environment.Exit(0); } } };
-                    int interval = 1000; bool board = true; var configured = new ManualResetEvent(false);
-                    var listen = new Thread(() =>
+                    Action signalStop = () => { try { stop.Set(); } catch (ObjectDisposedException) { } };
+                    Action<string> send = line =>
+                    {
+                        lock (writeGate)
+                        {
+                            try
+                            {
+                                byte[] bytes = Encoding.UTF8.GetBytes(line + "\n");
+                                if (!pipe.WriteAsync(bytes, 0, bytes.Length).Wait(2000)) signalStop();
+                            }
+                            catch { signalStop(); }
+                        }
+                    };
+                    if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
+                    { send("error=O processo de sensores não recebeu permissão de administrador. Reconfigure os sensores."); return 4; }
+                    if (!PawnIo.Ready) { send("error=O driver PawnIO não está instalado."); return 2; }
+                    int interval = 1000; bool board = true;
+                    var configured = new ManualResetEvent(false);
+                    new Thread(() =>
                     {
                         try
                         {
-                            string line;
-                            while ((line = reader.ReadLine()) != null)
+                            var reader = new StreamReader(pipe, Encoding.UTF8); string line;
+                            while ((line = reader.ReadLine()) != null && line != "quit")
                             {
-                                if (line == "quit") break;
-                                int ms; if (line.StartsWith("interval=") && Int32.TryParse(line.Substring(9), out ms)) interval = Math.Max(1000, Math.Min(5000, ms));
+                                int ms; if (line.StartsWith("interval=") && Int32.TryParse(line.Substring(9), out ms))
+                                    Interlocked.Exchange(ref interval, Math.Max(1000, Math.Min(5000, ms)));
                                 if (line.StartsWith("board=")) { board = line == "board=1"; configured.Set(); }
                             }
                         }
                         catch { }
-                        // The elevated helper never outlives the app, even if a driver call is stuck.
-                        Environment.Exit(0);
-                    }) { IsBackground = true };
-                    listen.Start();
+                        finally { signalStop(); }
+                    }) { IsBackground = true }.Start();
                     send("hello=" + Program.Version);
-                    AppLog.Write("Sensores avançados: processo iniciado (PID " + Process.GetCurrentProcess().Id + ", PawnIO " + (PawnIo.InstalledVersion == null ? "ausente" : PawnIo.InstalledVersion.ToString()) + ").");
-                    if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
-                    { send("error=O processo de sensores não recebeu permissão de administrador. Clique em Reconfigurar com uma conta de administrador."); return 4; }
-                    // Every failure is reported to the app, so the page can say exactly what went wrong.
-                    if (!PawnIo.Ready) { send("error=O driver PawnIO não está instalado (ou é anterior à 2.0). Clique em Reconfigurar."); return 2; }
+                    AppLog.Write("Sensores avançados: broker iniciado (PID " + Process.GetCurrentProcess().Id + ").");
                     configured.WaitOne(3000);
-                    var watchdog = new Thread(() =>
+                    using (var cpu = new SensorWorker("cpu", send))
+                    using (var mainboard = new SensorWorker("board", send))
                     {
-                        while (true)
+                        string warning = null; int ticks = 0;
+                        while (!stop.WaitOne(500))
                         {
-                            Thread.Sleep(2000);
-                            string current; double seconds;
-                            lock (stageGate) { current = stage; seconds = (DateTime.UtcNow - stageAt).TotalSeconds; }
-                            if (current == null) continue;
-                            // Still working (slow reads happen on some PCs): tell the app we are alive.
-                            if (Monitor.TryEnter(writeGate, 200)) { try { writer.WriteLine("alive=" + current + ":" + (int)seconds); } catch { } finally { Monitor.Exit(writeGate); } }
-                            // Opening can be slow on a busy PC (30–60 s was seen); only a really stuck call is ended.
-                            if (seconds < (current == "read" ? 120 : 150)) continue;
-                            string what = current == "cpu" ? "abrir os sensores da CPU" : current == "board" ? "abrir os sensores da placa-mãe" : "ler os sensores";
-                            AppLog.Write("Sensores avançados: o LibreHardwareMonitor travou ao " + what + " (" + (int)seconds + " s). Processo encerrado.");
-                            // Never wait on a stuck write here: tell the app if possible, then leave.
-                            if (Monitor.TryEnter(writeGate, 1000)) { try { writer.WriteLine("hang=" + current); } catch { } }
-                            Environment.Exit(5);
-                        }
-                    }) { IsBackground = true };
-                    watchdog.Start();
-                    HardwareSource source;
-                    try { Stage("cpu"); send("stage=cpu"); source = CreateSource(); }
-                    catch (Exception e) { AppLog.Write("Sensores avançados (abrir): " + e); send("error=" + OneLine("O LibreHardwareMonitor não abriu: " + e.GetBaseException().GetType().Name + ": " + e.GetBaseException().Message)); return 3; }
-                    try
-                    {
-                        Stage(null);
-                        send("info=" + OneLine(source.Describe()));
-                        bool first = true; int reads = 0;
-                        while (pipe.IsConnected)
-                        {
-                            var watch = Stopwatch.StartNew();
-                            Stage("read"); string line = source.Read(); Stage(null);
-                            send(line);
-                            if (++reads <= 3 || reads % 300 == 0) send("info=" + OneLine("Tempo de leitura: " + source.Timings()));
-                            if (first && line.IndexOf("cpu_temp=", StringComparison.Ordinal) < 0)
-                                send("warn=" + OneLine("O LibreHardwareMonitor abriu, mas não encontrou a temperatura da CPU (" + source.Describe() + "). O driver PawnIO pode estar bloqueado (Integridade de Memória/antivírus) ou exigir reiniciar o PC."));
-                            if (first && board)
-                            {
-                                // CPU readings are already flowing; now add the motherboard (it can take a while to open).
-                                Stage("board"); send("stage=board");
-                                try { source.EnableBoard(); send("info=" + OneLine(source.Describe())); }
-                                catch (Exception e) { AppLog.Write("Sensores avançados (placa-mãe): " + e); send("info=" + OneLine("Placa-mãe indisponível: " + e.GetBaseException().Message)); }
-                                Stage(null);
-                            }
-                            first = false;
-                            int rest = interval - (int)watch.ElapsedMilliseconds;
-                            if (rest > 0) Thread.Sleep(rest);
+                            if (ticks == 0) AppLog.Write("Sensores avançados: iniciando leitor da CPU.");
+                            cpu.Tick(interval);
+                            if (ticks == 0) AppLog.Write("Sensores avançados: iniciando leitor da placa.");
+                            if (board) mainboard.Tick(interval);
+                            if (ticks == 0) AppLog.Write("Sensores avançados: leitores iniciados, enviando heartbeat.");
+                            send("alive=broker");
+                            string next = String.Join(" ", new[] { cpu.Status, board ? mainboard.Status : null }.Where(s => !String.IsNullOrEmpty(s)));
+                            if (next != warning) { warning = next; send("warn=" + warning); }
+                            ticks++;
                         }
                     }
-                    finally { Stage(null); source.Dispose(); }
+                    configured.Dispose();
                 }
                 return 0;
             }
-            catch (IOException) { return 1; } // the app closed the pipe: nothing to report
-            catch (Exception e) { AppLog.Write("Sensores avançados (processo): " + e); return 1; }
+            catch (IOException) { return 0; }
+            catch (Exception e) { AppLog.Write("Sensores avançados (broker): " + e); return 1; }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static HardwareSource Open(string part) { return new HardwareSource(part); }
+
+        public static int RunWorker(string part, int parentId)
+        {
+            if ((part != "cpu" && part != "board") || parentId <= 0) return 2;
+            // Hold a process handle, so a reused PID cannot keep an orphan alive.
+            Process parent;
+            try { parent = Process.GetProcessById(parentId); var unused = parent.Handle; }
+            catch { return 2; }
+            new Thread(() => { try { parent.WaitForExit(); } catch { } Environment.Exit(0); }) { IsBackground = true }.Start();
+            try
+            {
+                AppLog.Write("Sensores avançados (" + part + "): abrindo biblioteca, PID " + Process.GetCurrentProcess().Id + ".");
+                Console.WriteLine("stage=open");
+                using (var source = Open(part))
+                {
+                    AppLog.Write("Sensores avançados (" + part + "): " + source.Describe());
+                    Console.WriteLine("info=" + source.Describe());
+                    int reads = 0;
+                    while (true)
+                    {
+                        Console.WriteLine("stage=read");
+                        string reading = source.Read();
+                        Console.WriteLine("sample=" + part + "|" + DateTime.UtcNow.Ticks + "|" + reading);
+                        if (++reads <= 3 || reads % 300 == 0) Console.WriteLine("info=Tempo de leitura: " + source.Timings());
+                        Thread.Sleep(1000);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                AppLog.Write("Sensores avançados (" + part + "): " + e);
+                Console.WriteLine("error=" + part + ": " + e.GetBaseException().Message.Replace("\r", " ").Replace("\n", " "));
+                return 3;
+            }
         }
     }
 
+    // The broker never calls into the driver itself, including during shutdown.
+    sealed class SensorWorker : IDisposable
+    {
+        readonly string part; readonly Action<string> send; readonly object gate = new object();
+        Process process; DateTime progress, retryAt; string stage = "open"; bool sampled;
+        public string Error { get; private set; }
+        public string Status { get { lock (gate) return Error ?? (!sampled ? "Aguardando sensores da " + (part == "cpu" ? "CPU." : "placa-mãe.") : null); } }
+        internal double OpenTimeout = 90, ReadTimeout = 30, RetrySeconds = 120;
+        public SensorWorker(string part, Action<string> send) { this.part = part; this.send = send; }
+        public void Tick(int interval)
+        {
+            lock (gate)
+            {
+                if (process == null)
+                {
+                    if (DateTime.UtcNow < retryAt) return;
+                    Start(); return;
+                }
+                if (process.HasExited)
+                { Fail(Error ?? (part + ": processo de leitura encerrado (" + process.ExitCode + ").")); return; }
+                if ((DateTime.UtcNow - progress).TotalSeconds > (stage == "open" ? OpenTimeout : ReadTimeout))
+                { Fail(part + ": leitura bloqueada em " + stage + ". Nova tentativa em " + (int)RetrySeconds + " s."); }
+            }
+        }
+        void Start()
+        {
+            stage = "open"; sampled = false; progress = DateTime.UtcNow;
+            string executable = Application.ExecutablePath;
+            string arguments = "--sensor-worker " + part + " " + Process.GetCurrentProcess().Id;
+            if (Type.GetType("Mono.Runtime") != null)
+            { arguments = "\"" + executable + "\" " + arguments; executable = Process.GetCurrentProcess().MainModule.FileName; }
+            var info = new ProcessStartInfo(executable, arguments)
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            var child = new Process { StartInfo = info };
+            process = child;
+            child.OutputDataReceived += (s, e) =>
+            {
+                lock (gate)
+                {
+                    if (process != child || e.Data == null) return;
+                    string line = e.Data;
+                    if (line.StartsWith("stage="))
+                    {
+                        stage = line.Substring(6);
+                        // Repeated stage notifications must not reset a stuck operation's timeout.
+                        if (!sampled || stage == "read") progress = DateTime.UtcNow;
+                    }
+                    else if (line.StartsWith("sample="))
+                    { sampled = true; progress = DateTime.UtcNow; stage = "idle"; Error = line.EndsWith("|") ? part + ": nenhum sensor disponível." : null; send(line); }
+                    else if (line.StartsWith("error=")) Error = line.Substring(6);
+                    else if (line.StartsWith("info=")) send("info=" + part + ": " + line.Substring(5));
+                }
+            };
+            child.ErrorDataReceived += (s, e) => { if (e.Data != null) AppLog.Write("Sensores avançados (" + part + " stderr): " + e.Data); };
+            try { child.Start(); child.BeginOutputReadLine(); child.BeginErrorReadLine(); }
+            catch (Exception e) { Fail(part + ": " + e.Message); }
+        }
+        void Fail(string message)
+        {
+            Error = message; AppLog.Write("Sensores avançados: " + message);
+            DisposeProcess(); retryAt = DateTime.UtcNow.AddSeconds(RetrySeconds);
+        }
+        void DisposeProcess()
+        {
+            var child = process; process = null;
+            if (child == null) return;
+            try { if (!child.HasExited) child.Kill(); } catch { }
+            child.Dispose();
+        }
+        public void Dispose() { lock (gate) DisposeProcess(); }
+    }
     // Kept in its own class so the main (non-elevated) process never loads LibreHardwareMonitorLib.
     sealed class HardwareSource : IDisposable
     {
         readonly LibreHardwareMonitor.Hardware.Computer computer;
         // CPU first; the motherboard (Super I/O chip) is added separately so a problem there cannot take the CPU readings down.
-        public HardwareSource()
+        public HardwareSource(string part)
         {
-            computer = new LibreHardwareMonitor.Hardware.Computer { IsCpuEnabled = true };
+            computer = new LibreHardwareMonitor.Hardware.Computer { IsCpuEnabled = part == "cpu", IsMotherboardEnabled = part == "board" };
             computer.Open();
         }
-        public void EnableBoard() { computer.IsMotherboardEnabled = true; }
         static IEnumerable<LibreHardwareMonitor.Hardware.IHardware> Flatten(IEnumerable<LibreHardwareMonitor.Hardware.IHardware> list)
         {
             foreach (var h in list) { yield return h; foreach (var s in Flatten(h.SubHardware)) yield return s; }
@@ -335,7 +424,6 @@ namespace LumeRgb
             return String.Join("; ", all.Select(h => h.HardwareType + ": " + h.Name + " (" + h.Sensors.Length + " sensores)").ToArray());
         }
         readonly Dictionary<string, double> cost = new Dictionary<string, double>();
-        readonly Dictionary<string, DateTime> nextUpdate = new Dictionary<string, DateTime>();
         public string Timings()
         {
             return cost.Count == 0 ? "-" : String.Join("; ", cost.Select(c => c.Key + " " + (int)c.Value + " ms").ToArray());
@@ -346,12 +434,10 @@ namespace LumeRgb
             // so it cannot hold the others back.
             foreach (var h in computer.Hardware)
             {
-                string key = h.HardwareType + " " + h.Name; DateTime next;
-                if (nextUpdate.TryGetValue(key, out next) && DateTime.UtcNow < next) continue;
+                string key = h.HardwareType + " " + h.Name;
                 var watch = Stopwatch.StartNew();
-                try { h.Update(); foreach (var sub in Flatten(h.SubHardware)) sub.Update(); } catch { }
+                h.Update(); foreach (var sub in Flatten(h.SubHardware)) sub.Update();
                 double ms = watch.Elapsed.TotalMilliseconds; cost[key] = ms;
-                nextUpdate[key] = DateTime.UtcNow.AddMilliseconds(ms > 1500 ? Math.Max(10000, ms * 4) : 0);
             }
             var all = Flatten(computer.Hardware).ToList();
             var cpu = all.Where(h => h.HardwareType == LibreHardwareMonitor.Hardware.HardwareType.Cpu).SelectMany(h => h.Sensors).ToList();
@@ -365,7 +451,7 @@ namespace LumeRgb
         }
         static float? Pick(List<LibreHardwareMonitor.Hardware.ISensor> sensors, LibreHardwareMonitor.Hardware.SensorType type, params string[] preferred)
         {
-            var list = sensors.Where(s => s.SensorType == type && s.Value.HasValue && !float.IsNaN(s.Value.Value)).ToList();
+            var list = sensors.Where(s => s.SensorType == type && s.Value.HasValue && !float.IsNaN(s.Value.Value) && !float.IsInfinity(s.Value.Value)).ToList();
             foreach (var name in preferred)
             {
                 var hit = list.FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
@@ -388,6 +474,7 @@ namespace LumeRgb
     {
         readonly object data = new object(); // guards values/lastData only; never held during I/O
         readonly Dictionary<string, double> values = new Dictionary<string, double>();
+        readonly Dictionary<string, DateTime> measuredAt = new Dictionary<string, DateTime>();
         DateTime lastData = DateTime.MinValue, lastAlive = DateTime.MinValue;
         readonly AutoResetEvent wake = new AutoResetEvent(false);
         readonly Thread thread;
@@ -402,11 +489,12 @@ namespace LumeRgb
         // Test hooks (hardware-free tests replace the Task Scheduler and the helper process).
         internal delegate bool HelperLauncher(out string output);
         internal HelperLauncher Launch = (out string output) => SensorTask.Run(out output);
-        internal Func<bool> TaskExists = SensorTask.Exists;
+        internal Func<bool> TaskExists = () => SensorTask.PointsTo(Application.ExecutablePath);
         internal Func<bool> DriverCheck = () => PawnIo.Ready;
         internal string PipeName = SensorTask.PipeName;
         internal string Marker = Path.Combine(Path.GetDirectoryName(AppLog.Path), "sensores-avancados.ativo");
         internal double ConnectSeconds = 15, OpenSeconds = 180, SilentSeconds = 15, ProblemRetrySeconds = 120;
+        internal double FreshSeconds = 30;
 
         public string State { get { return state; } }
         public string Detail { get { return detail; } }
@@ -442,7 +530,11 @@ namespace LumeRgb
             value = 0;
             if (state != "running") return false;
             // Readings can be several seconds apart on slow PCs; temperatures do not jump that fast.
-            lock (data) { if ((DateTime.UtcNow - lastData).TotalSeconds > 30) return false; return values.TryGetValue(id, out value); }
+            lock (data)
+            {
+                DateTime at;
+                return measuredAt.TryGetValue(id, out at) && (DateTime.UtcNow - at).TotalSeconds <= FreshSeconds && values.TryGetValue(id, out value);
+            }
         }
         // Called by the sensor loop whenever readings are wanted: only records the wish, never blocks.
         public void Ensure(int intervalMs)
@@ -475,7 +567,7 @@ namespace LumeRgb
             if (!wanted) { if (pipe != null) StopHost(); if (state == "running" || state == "starting" || state == "paused") Set("off", null); return; }
             if (pipe != null) { Watch(); return; }
             if (DateTime.UtcNow < retryAt) return;
-            if (!configured) { Set("setup", driverReady ? "Falta autorizar o processo de sensores (a autorização mudou na 3.4: clique em Ativar de novo)." : "Falta instalar o driver PawnIO."); return; }
+            if (!configured) { Set("setup", driverReady ? "Ative ou reconfigure os sensores: a tarefa está ausente ou aponta para outra pasta do Lume." : "Falta instalar o driver PawnIO."); return; }
             StartHost();
         }
         void Raise() { var h = Changed; if (h != null) try { h(this, EventArgs.Empty); } catch { } }
@@ -483,10 +575,14 @@ namespace LumeRgb
         void StartHost()
         {
             Set("starting", "Iniciando o processo de sensores…");
-            hostStage = null; hostError = null; hostWarning = null; hostRunning = false; hostGone = false;
             try { File.WriteAllText(Marker, DateTime.Now.ToString("s")); } catch { }
             var server = new NamedPipeServerStream(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096);
-            pipe = server; startedAt = DateTime.UtcNow;
+            lock (data)
+            {
+                pipe = server; startedAt = DateTime.UtcNow;
+                hostStage = null; hostError = null; hostWarning = null; hostRunning = false; hostGone = false;
+                values.Clear(); measuredAt.Clear(); lastData = DateTime.MinValue; lastAlive = DateTime.MinValue;
+            }
             string output;
             if (!Launch(out output))
             {
@@ -500,18 +596,20 @@ namespace LumeRgb
                 Set("error", "O processo de sensores não respondeu. Se você moveu a pasta do Lume, ative os sensores de novo."); return;
             }
             server.EndWaitForConnection(wait);
+            AppLog.Write("Sensores avançados: pipe conectado; configurando leitores.");
             writer = new StreamWriter(server, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
             Send("board=" + (skipBoard ? "0" : "1"));
             sentInterval = interval; Send("interval=" + Math.Max(1000, interval));
+            AppLog.Write("Sensores avançados: configuração enviada; iniciando receptor.");
             new Thread(() => Read(server)) { IsBackground = true, Name = "Lume advanced sensors pipe" }.Start();
         }
         void Watch()
         {
             if (hostGone)
             {
-                string stage = hostStage;
+                string stage = hostStage, error = hostError;
                 StopHost();
-                if (hostError != null) { retryAt = DateTime.UtcNow.AddSeconds(ProblemRetrySeconds); Set("error", hostError); return; }
+                if (error != null) { retryAt = DateTime.UtcNow.AddSeconds(ProblemRetrySeconds); Set("error", error); return; }
                 if (stage == "board" && !skipBoard)
                 {
                     // The motherboard chip made LibreHardwareMonitor hang: keep going with the CPU only.
@@ -532,8 +630,9 @@ namespace LumeRgb
             // While the helper is opening something (CPU at start, motherboard later) it may be silent for a while.
             if (since > (hostRunning && hostStage == null ? SilentSeconds : OpenSeconds))
             {
+                bool wasRunning = hostRunning;
                 StopHost(); retryAt = DateTime.UtcNow.AddSeconds(ProblemRetrySeconds);
-                Set("error", hostRunning ? "O processo de sensores parou de responder." : "O LibreHardwareMonitor demorou demais para abrir. Veja o registro de erros."); return;
+                Set("error", wasRunning ? "O processo de sensores parou de responder." : "O LibreHardwareMonitor demorou demais para abrir. Veja o registro de erros."); return;
             }
             if (interval != sentInterval) { sentInterval = interval; Send("interval=" + Math.Max(1000, interval)); }
             if (hostRunning) Set("running", hostWarning);
@@ -544,32 +643,51 @@ namespace LumeRgb
         {
             try
             {
-                var input = new StreamReader(server, Encoding.UTF8); string line;
+                var input = new StreamReader(server, Encoding.UTF8); string line; int received = 0;
                 while ((line = input.ReadLine()) != null)
                 {
-                    if (line.StartsWith("hello=")) { lock (data) lastData = DateTime.UtcNow; continue; }
-                    if (line.StartsWith("stage=")) { hostStage = line.Substring(6); lock (data) lastData = DateTime.UtcNow; wake.Set(); continue; }
-                    if (line.StartsWith("hang=")) { hostStage = line.Substring(5); continue; }
-                    if (line.StartsWith("alive=")) { lock (data) lastAlive = DateTime.UtcNow; continue; }
-                    if (line.StartsWith("error=")) { hostError = line.Substring(6); AppLog.Write("Sensores avançados: " + hostError); continue; }
-                    if (line.StartsWith("warn=")) { hostWarning = line.Substring(5); AppLog.Write("Sensores avançados: " + hostWarning); continue; }
-                    if (line.StartsWith("info=")) { AppLog.Write("Sensores avançados: " + line.Substring(5)); continue; }
+                    if (++received <= 5) AppLog.Write("Sensores avançados: recebido " + line);
+                    // An old reader can finish after a replacement has connected. It must never
+                    // publish readings or disconnect that new session.
                     lock (data)
                     {
-                        values.Clear();
-                        foreach (var pair in line.Split(';'))
+                        if (!Object.ReferenceEquals(pipe, server)) return;
+                        if (line.StartsWith("hello=")) { lastAlive = DateTime.UtcNow; continue; }
+                        if (line.StartsWith("stage=")) { hostStage = line.Substring(6); lastAlive = DateTime.UtcNow; wake.Set(); continue; }
+                        if (line.StartsWith("hang=")) { hostStage = line.Substring(5); continue; }
+                        if (line.StartsWith("alive=")) { lastAlive = DateTime.UtcNow; continue; }
+                        if (line.StartsWith("error=")) { hostError = line.Substring(6); AppLog.Write("Sensores avançados: " + hostError); continue; }
+                        if (line.StartsWith("warn=")) { hostWarning = line.Substring(5); AppLog.Write("Sensores avançados: " + hostWarning); continue; }
+                        if (line.StartsWith("info=")) { AppLog.Write("Sensores avançados: " + line.Substring(5)); continue; }
+                        bool partial = line.StartsWith("sample=");
+                        string payload = line; DateTime measured = DateTime.UtcNow;
+                        if (partial)
+                        {
+                            string[] fields = line.Substring(7).Split(new char[] { '|' }, 3);
+                            long ticks;
+                            if (fields.Length != 3 || (fields[0] != "cpu" && fields[0] != "board") ||
+                                !Int64.TryParse(fields[1], out ticks) || ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks) continue;
+                            measured = new DateTime(ticks, DateTimeKind.Utc);
+                            if (measured > DateTime.UtcNow.AddSeconds(1)) continue;
+                            foreach (var id in fields[0] == "cpu" ? new[] { "cpu_temp", "cpu_power" } : new[] { "board_temp", "cpu_fan" })
+                            { values.Remove(id); measuredAt.Remove(id); }
+                            payload = fields[2];
+                        }
+                        else { values.Clear(); measuredAt.Clear(); }
+                        foreach (var pair in payload.Split(';'))
                         {
                             int eq = pair.IndexOf('='); double v;
-                            if (eq > 0 && Double.TryParse(pair.Substring(eq + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out v)) values[pair.Substring(0, eq)] = v;
+                            if (eq > 0 && Double.TryParse(pair.Substring(eq + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out v) && !Double.IsNaN(v) && !Double.IsInfinity(v))
+                            { string id = pair.Substring(0, eq); values[id] = v; measuredAt[id] = measured; }
                         }
                         lastData = DateTime.UtcNow;
+                        hostStage = null;
+                        if (!hostRunning && values.Count > 0) { hostRunning = true; wake.Set(); }
                     }
-                    hostStage = null;
-                    if (!hostRunning) { hostRunning = true; wake.Set(); }
                 }
             }
             catch (Exception) { }
-            hostGone = true; wake.Set();
+            lock (data) { if (Object.ReferenceEquals(pipe, server)) { hostGone = true; wake.Set(); } }
         }
         void Send(string line)
         {
@@ -579,10 +697,10 @@ namespace LumeRgb
         }
         void StopHost()
         {
-            var server = pipe; pipe = null;
+            NamedPipeServerStream server;
+            lock (data) { server = pipe; pipe = null; values.Clear(); measuredAt.Clear(); lastData = DateTime.MinValue; lastAlive = DateTime.MinValue; }
             if (server != null) { Send("quit"); try { server.Dispose(); } catch { } }
             writer = null; hostRunning = false;
-            lock (data) { values.Clear(); lastData = DateTime.MinValue; lastAlive = DateTime.MinValue; }
             try { File.Delete(Marker); } catch { }
         }
 

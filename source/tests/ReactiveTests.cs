@@ -36,7 +36,7 @@ class ReactiveTests
             X68WindowsHidTransport.ValidateOutgoingReport(report);
             if (report[1] == 7 && RefuseLive && report[2] == 21) { ModeWrites++; return; }
             if (report[1] == 7) { ModeWrites++; for (int i = 2; i <= 8; i++) State[i] = report[i]; }
-            if (report[1] == 0x0F) { Buffer.BlockCopy(report, 9, Frame, report[3] * 56, Math.Min(56, 378 - report[3] * 56)); if (report[5] == 1) Frames++; }
+            if (report[1] == 0x0E) { for (int i = 0; i < Frame.Length; i += 3) { Frame[i] = report[2]; Frame[i + 1] = report[3]; Frame[i + 2] = report[4]; } Frames++; }
         }
         public void Dispose() { }
     }
@@ -44,8 +44,9 @@ class ReactiveTests
     {
         public int LampCount { get { return 68; } }
         public bool Autonomous = true; public Color Shown = Color.Empty; public int Updates;
+        public List<Color> History = new List<Color>();
         public void SetAutonomous(bool autonomous) { Autonomous = autonomous; }
-        public void SetAll(Color color) { Shown = color; Updates++; }
+        public void SetAll(Color color) { Shown = color; Updates++; History.Add(color); }
         public void Dispose() { }
     }
     static byte[] Fixture()
@@ -90,7 +91,8 @@ class ReactiveTests
 
         var rule = new ReactiveRule { Id = "r1", Name = "CPU no teclado", Sensor = "cpu_load", Keys = new List<string> { "X68HE" }, Min = 0, Max = 100,
             Mode = "color", ColorLow = "#00FF00", ColorMid = "#FFFF00", ColorHigh = "#FF0000", Brightness = 100, AlertAbove = 90, Enabled = true };
-        service.Mutate(s => { s.Reactions.Add(rule); s.ReactionsEnabled = true; }); engine.Refresh();
+        Check(!service.KeyboardLive, "unconfirmed keyboard channel is never enabled automatically");
+        service.Mutate(s => { s.Reactions.Add(rule); s.ReactionsEnabled = true; s.KeyboardLiveVariant = "screen"; }); engine.Refresh();
         Check(sensors.Wanted.Contains("rules"), "sensors sampled once a rule is active");
         Check(service.Settings.Reactions.Count == 1, "rule persisted and validated");
 
@@ -208,7 +210,7 @@ class ReactiveTests
         stuck.RefuseLive = true; service2.Scan().Wait();
         var sensors2 = new FakeSensors(); sensors2.Values["cpu_load"] = 0;
         service2.Mutate(s => { s.Reactions.Add(new ReactiveRule { Id = "k", Name = "CPU", Sensor = "cpu_load", Keys = new List<string> { "X68HE" }, Min = 0, Max = 100,
-            Mode = "color", ColorLow = "#00FF00", ColorHigh = "#FF0000", Brightness = 100, Enabled = true }); s.ReactionsEnabled = true; s.ReactiveSmoothing = 0; });
+            Mode = "color", ColorLow = "#00FF00", ColorHigh = "#FF0000", Brightness = 100, Enabled = true }); s.ReactionsEnabled = true; s.ReactiveSmoothing = 0; s.KeyboardLiveVariant = "screen"; });
         var engine2 = new ReactiveEngine(service2, sensors2, false);
         for (int i = 0; i < 4; i++) { engine2.Step(1); Settle(service2); }
         Check(stuck.State[2] != 21 && stuck.State[7] == 255 && !service2.KeyboardLive, "keyboard refusing the live mode still follows the reaction (classic commands)");
@@ -236,11 +238,39 @@ class ReactiveTests
         Check(!lamps.Autonomous && lamps.Shown.G == 255 && lamps.Shown.R == 0, "LampArray: keyboard shows the reaction colour (green at 0%)");
         for (int v = 0; v <= 100; v += 10) { sensors3.Values["cpu_load"] = v; engine3.Step(1); Settle(service3); }
         Check(lamps.Shown.R == 255 && lamps.Updates >= 10, "LampArray: follows the sensor step by step (" + lamps.Updates + " updates)");
-        Check(keys3.ModeWrites == effectCommands && keys3.Frames == 0, "LampArray: not one effect command or 0x0F frame sent to the keyboard (no blink)");
+        Check(keys3.ModeWrites == effectCommands && keys3.Frames == 0, "LampArray: no effect command or vendor colour report sent to the keyboard (no blink)");
         Check(Zone(service3, "X68HE").Effect == LumeService.StreamEffect && Zone(service3, "X68HE").CurrentColor.R == 255, "LampArray: the page shows the live colour");
         service3.Mutate(s => s.ReactionsEnabled = false); engine3.Refresh(); Settle(service3);
         Check(lamps.Autonomous && Zone(service3, "X68HE").CurrentColor == before3.CurrentColor, "reactions off: keyboard gets its own effect back");
-        engine3.Dispose(); service3.Dispose();
+        engine3.Dispose();
+        service3.Apply(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = Color.Blue, BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 } }).Wait();
+        lamps.History.Clear(); int modesBeforeFade = keys3.ModeWrites;
+        var fadeClock = System.Diagnostics.Stopwatch.StartNew();
+        service3.Apply(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = Color.Red, BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 } }).Wait();
+        Check(fadeClock.ElapsedMilliseconds >= 600 && lamps.History.Count >= 6, "manual change publishes intermediate frames over time");
+        Check(lamps.History.All(c => Math.Max(c.R, Math.Max(c.G, c.B)) == 255) && lamps.Shown.R == 255, "manual blue-to-red fade never dims the peak and reaches its exact target");
+        Check(keys3.ModeWrites == modesBeforeFade && !lamps.Autonomous, "manual fade does not restart the keyboard effect or release host control at the end");
+        service3.Dispose();
+        // The real vendor route must fade manual targets, keep a quiet colour
+        // beyond the reactive timeout, and leave that colour after app shutdown.
+        var manualKeys = new FakeKeys(); manualKeys.State[2] = 1; manualKeys.State[6] = 0; manualKeys.State[7] = 0; manualKeys.State[8] = 255;
+        var manualController = new X68KeyboardController(); manualController.Connect(manualKeys);
+        var manualHub = new LightingHub(); manualHub.Attach(null, manualController, "manual"); manualHub.KeyboardLive = true;
+        manualHub.ApplyTransition(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = Color.Red, BrightnessPercent = 100, Effect = "Static", SpeedPercent = 50 } });
+        Check(manualKeys.Frames >= 8 && manualKeys.ModeWrites == 1 && manualKeys.Rgb == 0xFF0000, "factory route sends intermediate manual colours and reaches red without restarting the effect");
+        Thread.Sleep((X68KeyboardController.StreamHoldSeconds + 1) * 1000);
+        Check(manualController.IsStreaming && manualKeys.Rgb == 0xFF0000, "manual colour stays streamed when sensors are idle");
+        manualHub.Dispose();
+        Check(manualKeys.State[2] == 1 && manualKeys.Rgb == 0xFF0000 && !manualController.IsStreaming, "closing the app leaves the final colour in a native effect");
+        bool constantPeak = true;
+        for (int i = 0; i <= 100; i++)
+        {
+            var color = ColorTransition.Mix(Color.Blue, Color.Red, i / 100.0);
+            constantPeak &= Math.Max(color.R, Math.Max(color.G, color.B)) == 255;
+        }
+        Check(constantPeak, "all blue-to-red HSV transition samples keep their peak intensity");
+        var midpoint = ColorTransition.Mix(Color.Blue, Color.Red, .5);
+        Check(midpoint.R == 255 && midpoint.B == 255, "blue-to-red midpoint is bright magenta");
         Console.WriteLine("ALL REACTIVE TESTS PASSED");
     }
 }

@@ -16,6 +16,8 @@ mcs -langversion:5 -nologo $refs -r:System.Web.Extensions.dll -r:System.IO.Compr
 mono "$bin/UpdaterOfflineTests.exe" mcs | tail -1
 mcs -langversion:5 -nologo $refs -r:System.Windows.Forms.dll -r:../lib/LibreHardwareMonitorLib.dll -out:"$bin/AdvancedSensorsTests.exe" $core HardwareMonitor.cs tests/AdvancedSensorsTests.cs
 mono "$bin/AdvancedSensorsTests.exe" | tail -1
+mcs -langversion:5 -nologo $refs -r:System.Windows.Forms.dll -r:../lib/LibreHardwareMonitorLib.dll -out:"$bin/SensorWorkerTests.exe" $core HardwareMonitor.cs tests/SensorWorkerTests.cs
+mono "$bin/SensorWorkerTests.exe" | tail -1
 mcs -langversion:5 -nologo $refs -r:System.Windows.Forms.dll -out:"$bin/WidgetPreview.exe" $core DesktopWidgets.cs tests/WidgetPreview.cs
 mono "$bin/WidgetPreview.exe" "$bin" >/dev/null
 # Same options file as COMPILAR.bat and the in-app updater.

@@ -1,0 +1,6 @@
+﻿CONFIRMED RGB gradient midpoint is #800080; max channel falls from 255 to 128
+CONFIRMED manual blue-to-red sends one final effect configuration; no intermediate colors
+CONFIRMED classic gradient reconfigures effect for every color even with constant 100% brightness
+CONFIRMED fake transport starts live stream
+CONFIRMED reading DynamicLighting (called by Diagnostics) stops the live stream
+CONFIRMED running helper silence is mislabeled as startup timeout after StopHost resets hostRunning

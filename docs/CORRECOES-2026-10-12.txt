@@ -1,0 +1,78 @@
+﻿CORREÇÕES CONCLUÍDAS — LUME RGB 3.8 — 12/10/2026
+
+Resultado
+O usuário confirmou a transição física de 30 segundos no X68HE: cores
+intermediárias, sem apagar ou piscar. Os quatro sensores avançados foram
+recebidos continuamente no PC durante 90 segundos, e novamente durante 30
+segundos depois da atualização da instalação.
+
+Causa e correção do teclado
+O caminho clássico enviava SET_LEDPARAM 0x07 para cada cor, reiniciando o efeito.
+O caminho ao vivo enviava sete pacotes 0x0F, ignorados pelo firmware conectado.
+Selecionar Screen color sem enviar a cor correta deixava os LEDs apagados.
+
+O aplicativo de fábrica fornecido foi analisado na pasta app_teclado.
+A variante 2472 (0x09A8) usa o protocolo 5e635fe2.js, firmware 0x0303.
+Seu componente nativo iot_driver.exe define SET_WINDOS 0x0E. Foi instrumentado
+com Frida numa sessão limitada, bloqueando todas as escritas HID, exceto as
+consultas conhecidas 0x8F/0x87. Isso revelou os pacotes reais gerados pelo
+fabricante para Screen color: report ID 0, comando 0E, R,G,B, três zeros,
+checksum Bit7 e preenchimento zero. Exemplo capturado, incluindo report ID:
+00 0E 2F 31 30 00 00 00 61, seguido por zeros.
+O helper usa um buffer 67 bytes; a coleção HID declara 65, usados pelo FreeRGB.
+Uma primeira tentativa de instrumentação falhou por ABI incorreta e o helper
+executou brevemente sem o bloqueio. Foi encerrado; as capturas citadas acima
+vieram da repetição com bloqueios confirmados antes de iniciar o processo.
+
+O FreeRGB agora envia uma única cor 0x0E por atualização e entra no efeito
+Screen color uma vez. Gradiente HSV mantém azul → magenta → vermelho sem
+o escurecimento do gradiente RGB. Alterações manuais enviam intermediários,
+sem reaplicar o efeito no final. A última cor manual continua transmitida
+quando os sensores ficam ociosos e passa a um efeito nativo ao encerrar.
+Os comandos 0x14/0x94, interpretados antes como ativação de LampArray, foram
+retirados: o driver X 68 examinado não sustenta essa interpretação.
+O canal confirmado foi habilitado nas configurações pessoais, preservando
+perfis, widgets, regras e demais preferências.
+
+Causa e correção do monitoramento
+A biblioteca abriu CPU e placa rapidamente, mas o canal de comunicação
+síncrono duplex podia bloquear a entrega dos dados. A comunicação agora usa
+named pipe assíncrono com limites nas escritas. CPU e placa têm processos
+independentes supervisionados, limites para abertura/leitura e retomada.
+As leituras têm validade individual; uma parte travada não invalida a outra.
+Também foram corrigidas corridas entre sessões, estado ao desconectar e
+verificação do caminho do executável da tarefa do Windows.
+
+Verificação
+• Oito suítes passaram: MSI, X 68, configurações, serviço, reações, atualizador
+  offline, sensores avançados e isolamento dos processos de sensores.
+• Compilação completa .NET Framework/C# 5 passou; JavaScript validado.
+• Pacote 0x0E comparado byte a byte com a captura do fabricante.
+• Testes cobrem transição manual, cor mantida com sensores ociosos e saída.
+• Teste real integrado azul → vermelho concluiu e restaurou os parâmetros.
+• Tarefa de sensores corresponde à instalação e rejeita outro caminho.
+• Validação dos sensores finais: CPU 52–60°C, potência 36–44W, placa 42–42,5°C,
+  ventoinha 974–1000RPM. São amostras deste teste, não faixas de especificação.
+
+Instalação atualizada
+C:\Users\flavi\Downloads\LumeRGB\LumeRGB\LumeRGB.exe
+Backup anterior:
+C:\Users\flavi\Downloads\LumeRGB\LumeRGB-backup-20261012-164834
+Fontes alterados na branch local fix/sensors-keyboard-transitions.
+Não foi realizado commit, push ou publicação. O aplicativo de fábrica fica
+preservado localmente e ignorado pelo Git; não integra o pacote FreeRGB.
+
+Limites
+O protocolo foi confirmado fisicamente neste X68HE específico. Outros
+firmwares precisam do teste visual. A enumeração não mostrou LampArray.
+Os testes automatizados usam transportes simulados; não equivalem a uma
+validação visual de todas as telas, widgets ou efeitos da placa.
+REA MCP não estava disponível; análise estática foi feita com leituras de
+arquivos e dumpbin, e a captura dinâmica com Frida. Não são REA Evidence.
+
+Evidências em docs/auditoria-2026-10-12:
+factory-screen-packets.jsonl — captura final dos relatórios nativos;
+x 68-device-mapping.txt e renderer-screen-entry.txt — mapeamento estático;
+sensors-real-3.8.txt — primeira verificação contínua dos sensores.
+O relatório AUDITORIA-2026-10-12.txt descreve a avaliação inicial; conclusões
+anteriores sobre os canais do teclado são substituídas por este resultado.

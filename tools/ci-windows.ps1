@@ -36,5 +36,6 @@ Push-Location $src
 foreach ($test in 'MsiNativeTests', 'X68KeyboardControllerTests', 'SettingsTests', 'ServiceTests', 'ReactiveTests') { Invoke-Test $test @() }
 Invoke-Test 'UpdaterOfflineTests' @('/reference:System.Web.Extensions.dll', '/reference:System.IO.Compression.dll', '/reference:System.IO.Compression.FileSystem.dll', (Join-Path $src 'Updater.cs'))
 Invoke-Test 'AdvancedSensorsTests' @('/reference:System.Windows.Forms.dll', "/reference:$(Join-Path $root 'lib\LibreHardwareMonitorLib.dll')", (Join-Path $src 'HardwareMonitor.cs'))
+Invoke-Test 'SensorWorkerTests' @('/reference:System.Windows.Forms.dll', "/reference:$(Join-Path $root 'lib\LibreHardwareMonitorLib.dll')", (Join-Path $src 'HardwareMonitor.cs'))
 Pop-Location
 Write-Output 'Windows: compilação e testes OK.'

@@ -4,9 +4,20 @@ Controle de iluminação RGB para Windows (MSI MS-7E30 + teclado X68HE) por USB/
 com interface em WebGPU (biblioteca [Shaders](https://github.com/shader-effects-inc/shaders)),
 widgets na área de trabalho para ligar/desligar tudo, ícone na bandeja e atalho global
 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>, **Reações** (CPU, RAM, GPU, frequência, disco, rede, temperaturas, watts e ventoinha controlando
-qualquer zona, 1–30 atualizações/s com transição suave; teclado em streaming nativo "Screen color" sem piscar, com volta automática ao modo clássico;
+qualquer zona, 1–30 atualizações/s com suavização e gradiente HSV;
+transições temporais em canais compatíveis, com uso do canal ao vivo do teclado apenas após confirmação visual;
 reconexão automática de dispositivos; botão "Copiar diagnóstico";
 LibreHardwareMonitorLib embutido como opção experimental) e atualização automática a partir do branch `main`.
+
+Na 3.8, CPU e placa-mãe são lidas em processos separados, com comunicação assíncrona,
+tempo limite e validade individual das leituras. Os quatro sensores avançados foram
+validados neste PC por 90 segundos. A análise do aplicativo de fábrica fornecido
+identificou o protocolo correto do X68HE: uma cor RGB pelo comando 0x0E, após selecionar
+Screen color. Os antigos pacotes 0x0F eram ignorados. O usuário confirmou uma transição
+física de 30 segundos com cores intermediárias, sem apagar ou piscar, em 12/10/2026
+(dispositivo 2472, firmware 0x0303). O app mantém o canal apenas após confirmação visual
+e deixa a última cor num efeito nativo ao sair. Não envia mais os comandos 0x14/0x94,
+cuja interpretação como ativação de LampArray não era sustentada pelo driver.
 
 ![Início](docs/previews/interface-home.png)
 ![Reações](docs/previews/interface-reactions.png)

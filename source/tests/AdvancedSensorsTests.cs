@@ -50,6 +50,15 @@ class AdvancedSensorsTests
                 string board = r.ReadLine(); lastBoard = board;
                 if (mode == "error") { w.WriteLine("error=O driver PawnIO não está instalado."); return; }
                 if (mode == "silent") { Thread.Sleep(8000); return; }
+                if (mode == "partial")
+                {
+                    w.WriteLine("sample=cpu|" + DateTime.UtcNow.Ticks + "|cpu_temp=52.0;cpu_power=NaN");
+                    for (int i = 0; i < 100; i++)
+                    { w.WriteLine("sample=board|" + DateTime.UtcNow.Ticks + "|board_temp=41.0;cpu_fan=900"); Thread.Sleep(100); }
+                    return;
+                }
+                if (mode == "runningSilent")
+                { w.WriteLine("cpu_temp=50.0"); Thread.Sleep(8000); return; }
                 if (mode == "slow")
                 {
                     // One reading, then a long read that only sends heartbeats, then readings again.
@@ -124,6 +133,23 @@ class AdvancedSensorsTests
         double t6; Check(slow.State == "running" && slow.TryGet("cpu_temp", out t6), "7 s read with heartbeats: still running, last reading kept");
         Check(WaitFor(() => slow.TryGet("cpu_temp", out t6) && Math.Abs(t6 - 51) < 0.01, 5), "readings resume after the slow read");
         slow.Dispose();
+
+        // A board sample cannot refresh the age of an old CPU reading.
+        var partial = Client("lume-adv-partial", n => "partial", marker);
+        partial.FreshSeconds = 1; partial.Ensure(1000);
+        Check(WaitFor(() => partial.State == "running", 10), "partial helpers can publish independently");
+        double cpu, boardValue;
+        Check(partial.TryGet("cpu_temp", out cpu) && partial.TryGet("board_temp", out boardValue), "CPU and board samples coexist");
+        Check(!partial.TryGet("cpu_power", out cpu), "NaN sensor data is never exposed as available");
+        Thread.Sleep(1600);
+        Check(!partial.TryGet("cpu_temp", out cpu) && partial.TryGet("board_temp", out boardValue), "continuing board readings do not keep stale CPU data alive");
+        partial.Dispose();
+
+        var runningSilent = Client("lume-adv-running-silent", n => "runningSilent", marker);
+        runningSilent.Ensure(1000);
+        Check(WaitFor(() => runningSilent.State == "running", 10), "helper published before going silent");
+        Check(WaitFor(() => runningSilent.State == "error", 10) && runningSilent.Detail.Contains("parou de responder"), "running timeout is not mislabeled as a startup timeout");
+        runningSilent.Dispose();
 
         // 7. Task Scheduler hangs: every call from the window / sensor loop still returns at once.
         var g = new AdvancedSensors(false, marker);

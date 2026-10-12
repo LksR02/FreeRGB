@@ -32,13 +32,14 @@ class UpdaterOfflineTests
     {
         string root = Path.Combine(Path.GetTempPath(), "Lume-updater-offline-" + Guid.NewGuid().ToString("N"));
         string app = Path.Combine(root, "app"); Directory.CreateDirectory(Path.Combine(app, "source")); Directory.CreateDirectory(Path.Combine(app, "ui", "old"));
-        File.WriteAllText(Path.Combine(app, "version.json"), "{\"commit\":\"aaaa\"}");
+        File.WriteAllText(Path.Combine(app, "version.json"), "{\"commit\":\"aaaa\",\"localBuild\":true}");
         File.WriteAllText(Path.Combine(app, "LumeRGB.exe"), "old");
         File.WriteAllText(Path.Combine(app, "source", "Removed.cs"), "class Removed {}");
         File.WriteAllText(Path.Combine(app, "ui", "old", "gone.js"), "x");
         File.WriteAllText(Path.Combine(app, "minhas-notas.txt"), "do usuário");
         string sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         var updater = new Updater(app, Path.Combine(root, "work")) { CompilerPath = args.Length > 0 ? args[0] : null };
+        Check(updater.LocalBuild, "local patched build is identified to prevent unattended replacement");
         updater.Download = url =>
         {
             if (url.Contains("/commits/")) return Encoding.UTF8.GetBytes("{\"sha\":\"" + sha + "\",\"commit\":{\"message\":\"Nova versão\",\"committer\":{\"date\":\"2026-10-12T00:00:00Z\"}}}");

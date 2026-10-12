@@ -23,7 +23,18 @@ export function createReactions(h) {
 
   const parse = (c) => { const v = parseInt(c.slice(1), 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
   const hex = (rgb) => '#' + rgb.map((x) => Math.round(x).toString(16).padStart(2, '0')).join('').toUpperCase();
-  const mix = (a, b, t) => { const x = parse(a), y = parse(b); return hex(x.map((v, i) => v + (y[i] - v) * t)); };
+  const mix = (a, b, t) => {
+    const hsv = (c) => {
+      const [r, g, b] = parse(c).map(x => x / 255), max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      let h = !d ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return { h: (h * 60 + 360) % 360, s: max ? d / max : 0, v: max };
+    };
+    const x = hsv(a), y = hsv(b);
+    if (x.s < .0001) x.h = y.h; if (y.s < .0001) y.h = x.h;
+    const h = (x.h + ((y.h - x.h + 540) % 360 - 180) * t + 360) % 360, s = x.s + (y.s - x.s) * t, v = x.v + (y.v - x.v) * t;
+    const f = n => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+    return hex([f(5) * 255, f(3) * 255, f(1) * 255]);
+  };
   function evaluate(rule, value) {
     const t = Math.max(0, Math.min(1, (value - rule.min) / (rule.max - rule.min)));
     if (rule.mode === 'brightness') return { color: rule.colorHigh, brightness: Math.max(1, Math.round(Math.max(5, 100 * t) * (rule.brightness || 100) / 100)), t };
@@ -204,16 +215,17 @@ export function createReactions(h) {
     $('#advDiag').addEventListener('click', () => call('diagnostics', {}, 'Diagnóstico copiado: cole numa mensagem.').catch(() => {}));
     $('#kbTest').addEventListener('click', async (e) => {
       const btn = e.currentTarget; btn.disabled = true; $('#kbAsk').hidden = true;
-      btn.querySelector('span').textContent = 'Olhe para o teclado: vermelho, depois verde…';
+      btn.querySelector('span').textContent = 'Olhe para o teclado: azul → magenta → vermelho…';
       try { await call('keyboardTest'); $('#kbAsk').hidden = false; } catch { /* toast shown */ }
-      btn.disabled = false; btn.querySelector('span').textContent = 'Testar o teclado de novo (10 s)';
+      btn.disabled = false; btn.querySelector('span').textContent = 'Testar transição de novo (10 s)';
     });
     $('#kbLampTest').addEventListener('click', async (e) => {
       const btn = e.currentTarget; btn.disabled = true; $('#kbLampAsk').hidden = true;
-      btn.querySelector('span').textContent = 'Ligando… olhe para o teclado (pode levar 15 s)';
+      btn.querySelector('span').textContent = 'Verificando a interface…';
       try {
         const outcome = await call('keyboardLampTest');
         if (outcome === 'shown') $('#kbLampAsk').hidden = false;
+        else if (outcome === 'unsupported') toast('O teclado não anuncia uma interface LampArray. O driver de fábrica não define um comando para ativá-la.', true);
         else toast('Desconecte e reconecte o cabo do teclado e clique em testar de novo: o Windows precisa reconhecer a Iluminação Dinâmica.', true);
       } catch { /* toast shown */ }
       btn.disabled = false; btn.querySelector('span').textContent = 'Testar Iluminação Dinâmica de novo';
@@ -221,7 +233,7 @@ export function createReactions(h) {
     $('#kbLampAsk').addEventListener('click', (e) => {
       const b = e.target.closest('[data-lamp]'); if (!b) return;
       const ok = b.dataset.lamp === 'lamp';
-      call('keyboardTestResult', { seen: b.dataset.lamp }, ok ? 'Pronto: o teclado vai mudar de cor nas reações sem piscar.' : 'Certo: a Iluminação Dinâmica foi desligada de novo no teclado; ele usa o comando clássico.')
+      call('keyboardTestResult', { seen: b.dataset.lamp }, ok ? 'Pronto: o teclado vai mudar de cor nas reações sem piscar.' : 'Certo: o teclado continua usando o comando clássico.')
         .then(() => { $('#kbLampAsk').hidden = true; }).catch(() => {});
     });
     $('#kbAsk').addEventListener('click', (e) => {

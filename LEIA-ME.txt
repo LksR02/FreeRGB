@@ -1,153 +1,39 @@
-﻿LUME RGB 3.7 — TECLADO PELA ILUMINAÇÃO DINÂMICA DO WINDOWS + SENSORES LENTOS
+LUME RGB 3.8 — MONITORAMENTO CORRIGIDO E TRANSIÇÕES DO X68HE
 
-NOVO NA 3.7
-• O teste da 3.6 mostrou que o X68HE ignora os quadros de cor ao vivo (mais de
-  1000 quadros enviados, nenhuma cor apareceu). Mas o teclado responde ao
-  comando da "Iluminação Dinâmica da Microsoft", e é esse o caminho em tempo
-  real que o app Dynamic RGB do fabricante usa quando o teclado o oferece.
-  "Testar Iluminação Dinâmica do Windows" (em Reações) liga essa função no
-  teclado, espera o Windows reconhecê-lo como dispositivo de Iluminação
-  Dinâmica (HID LampArray) e o deixa ROSA por 4 s. Se ficou rosa, clique em
-  "Sim": nas reações a cor vai num único comando padrão, sem reiniciar
-  nenhum efeito (sem piscar). Se não ficou, "Não" desliga a função de novo.
-  Se o Windows não reconhecer, desconecte e reconecte o cabo do teclado.
-  Se as cores mudarem sozinhas depois, desligue "Usar a Iluminação Dinâmica
-  nos meus dispositivos" em Configurações > Personalização > Iluminação
-  dinâmica (há um atalho na página).
-• Sensores avançados: no seu PC eles funcionaram (CPU 57 °C, placa 42 °C,
-  ventoinha 977 RPM), mas cada leitura com a placa-mãe demorava tanto que o
-  Lume achava que o processo tinha parado. Agora o processo avisa que está
-  vivo durante leituras lentas, mede o tempo de cada parte (vai para o
-  registro) e lê a parte lenta com menos frequência.
+NOVO NA 3.8
+• Sensores de CPU e placa-mãe em processos independentes, com comunicação
+  assíncrona, limites de tempo, retomada após falhas e validade por sensor.
+  Validado neste PC por 90 segundos: temperatura e potência da CPU,
+  temperatura da placa-mãe e rotação da ventoinha, sem interrupção.
+• Protocolo do X68HE corrigido a partir do aplicativo de fábrica fornecido:
+  Screen color recebe uma cor RGB pelo comando 0x0E. Os sete pacotes 0x0F
+  usados antes eram ignorados e deixavam o teclado apagado nesse efeito.
+  Transição física de 30 segundos confirmada pelo usuário em 12/10/2026,
+  com cores intermediárias, sem apagar ou piscar (dispositivo 2472, firmware 0303).
+• Gradiente HSV: azul → magenta → vermelho conserva a intensidade máxima
+  dos canais. Estúdio, cenas e perfis enviam cores intermediárias ao longo
+  do tempo. Desligar continua sendo imediato.
+• O teste dentro do aplicativo mostra azul → magenta → vermelho, depois
+  restaura exatamente os parâmetros anteriores. Ative o canal ao vivo após
+  confirmar visualmente a transição. Ao sair do aplicativo, a última cor
+  manual passa para o efeito nativo para continuar acesa sem streaming.
+• Retirados os comandos 0x14/0x94: o driver deste teclado não confirma que
+  ativem Iluminação Dinâmica do Windows. O teste LampArray agora apenas usa
+  uma interface realmente anunciada pelo dispositivo.
+• Cores escuras salvas são preservadas ao desligar e ligar.
+• A tarefa de sensores precisa apontar para esta pasta; se mover o app,
+  use Reconfigurar sensores. Leituras indisponíveis não bloqueiam as demais.
+• Compilações locais de correção não são substituídas automaticamente pelo
+  atualizador. A atualização manual continua disponível.
 
-LUME RGB 3.6 — TESTE DO TECLADO + SENSORES AVANÇADOS QUE ABREM DEVAGAR
-
-NOVO NA 3.6
-• Teclado: o modo ao vivo agora transmite as cores 30 vezes por segundo, sem
-  parar e sem leituras no meio, exatamente como o app Dynamic RGB do
-  fabricante (antes era no máximo 4x por segundo).
-• "Testar o teclado (10 s)" em Reações: o teclado fica VERMELHO pelo modo
-  Screen color e depois VERDE por cima do efeito normal. Você clica na cor
-  que viu e o Lume passa a usar esse modo nas reações. Se nenhuma aparecer,
-  ele usa o comando clássico (muda de cor, mas pode piscar).
-• Sensores avançados: no seu PC o LibreHardwareMonitor leva de 30 a 60 s para
-  abrir; o Lume desistia aos 60 s. Agora espera até 3 min, começa a ler a CPU
-  assim que ela abre e só depois adiciona a placa-mãe. O processo de
-  sensores fica aberto por 5 min depois do último uso para não pagar essa
-  espera de novo.
-
-LUME RGB 3.5 — SENSORES AVANÇADOS NÃO TRAVAM MAIS O APP
-
-CORRIGIDO NA 3.5
-• A janela consultava o Agendador de Tarefas do Windows (schtasks) e o
-  processo de sensores na própria linha da interface, segurando uma trava
-  que o resto do app também usava. Se o Windows demorasse ou o schtasks
-  travasse, o Lume inteiro congelava. Agora tudo isso roda numa linha
-  separada; a janela e as Reações só leem valores prontos e nunca esperam.
-• schtasks com limite de 10 s (antes podia esperar para sempre).
-• O processo de sensores abre em etapas (CPU, depois placa-mãe) com um vigia:
-  se o LibreHardwareMonitor travar, ele é encerrado sozinho; se travar na
-  placa-mãe, o Lume tenta de novo só com a CPU. Ele também fecha na hora
-  quando o Lume fecha, mesmo que o driver esteja preso. Leituras a cada 1 s.
-• Se o Lume fechar de forma inesperada (travou, foi encerrado à força) com
-  os sensores avançados ativos, eles ficam PAUSADOS na próxima abertura e o
-  resto do app funciona normalmente. Em Reações: "Retomar" ou "Pausar".
-
-LUME RGB 3.4 — CORREÇÕES (TECLADO, RECONEXÃO, SENSORES) + DIAGNÓSTICO
-
-CORRIGIDO NA 3.4
-• Se o teclado (ou a placa) falhasse uma única leitura, o Lume o desconectava
-  e parava de atualizar TODAS as zonas até ser reiniciado. Agora cada
-  dispositivo é lido separadamente, leituras ruins são repetidas e, se um
-  deles cair, o Lume reconecta sozinho na próxima ação (ou em até 5 s
-  durante as Reações).
-• Modo ao vivo do teclado refeito exatamente como o app Dynamic RGB do
-  fabricante: antes de enviar as cores, o Lume consulta o teclado e desliga
-  nele a "Iluminação Dinâmica do Windows" (com ela ligada o teclado ignora as
-  cores enviadas). A troca para o modo ao vivo agora é confirmada; se o
-  teclado recusar, o Lume volta sozinho para o comando clássico.
-  As cores são reenviadas continuamente (4x por segundo no mínimo).
-• Novo interruptor em Reações: "Teclado sem piscar (modo ao vivo)". Se o
-  teclado apagar ou não mudar de cor numa reação, desligue-o.
-• Ao fechar o Lume, o teclado sai do modo ao vivo e volta à cor de antes. Se
-  ele tiver ficado preso nesse modo (Lume fechado à força), o Lume o
-  restaura ao abrir, quando nenhuma reação o usa.
-• Sensores avançados: a tarefa do Windows agora fica na raiz do Agendador
-  ("LumeRGB Sensores") com permissão explícita para o seu usuário iniciá-la.
-  Quem já tinha ativado precisa clicar em "Ativar" de novo (uma vez).
-  O processo de sensores também confirma que recebeu permissão de
-  administrador, e cada etapa fica no registro.
-• "Copiar diagnóstico" (Ajustes > Seus dados, e em Reações): junta o estado
-  dos dispositivos, a resposta crua do teclado, os sensores, a tarefa do
-  Windows e o fim do registro de erros num texto que abre no Bloco de Notas
-  e vai para a área de transferência — é só colar numa mensagem.
-
-LUME RGB 3.3 — TECLADO AO VIVO SEM PISCAR + SENSORES SEM DRIVER
-
-NOVO NA 3.3
-• Teclado sem piscar nas Reações: o X68HE agora usa o modo nativo "Screen
-  color" (o mesmo do app "Dynamic RGB" do fabricante). O Lume troca o teclado
-  para esse modo uma única vez e depois envia só quadros de cor (comando 0x0F,
-  grade 21×6) — o efeito não é reiniciado a cada mudança, então as cores
-  deslizam sem piscar. A respiração de alerta também é feita pelo Lume.
-  No Studio, o efeito aparece como "Ao vivo" enquanto uma reação controla o
-  teclado; ao desligar as Reações ele volta ao efeito anterior.
-• Novos sensores que funcionam sem driver nem administrador: frequência real
-  da CPU (MHz), atividade do disco (%) e tráfego de rede (Mbit/s), lidos dos
-  contadores do próprio Windows. Se o Windows expuser o "Energy Meter", o
-  consumo da CPU (W) também passa a vir dele. Modelo novo: "Rede na fita".
-• Sensores avançados (LibreHardwareMonitor) agora são experimentais e mostram
-  o erro exato quando falham (driver PawnIO ausente, DLL bloqueada, nenhum
-  sensor de temperatura encontrado...). Botão "Ver registro" abre o erro.log.
-  Observação: a temperatura de CPUs AMD só pode ser lida com um driver de
-  kernel; sem ele o Lume usa a aproximação ACPI do Windows.
-
-LUME RGB 3.2 — REAÇÕES RÁPIDAS + SENSORES EMBUTIDOS
-
-NOVO NA 3.2
-• Reações muito mais rápidas e fluidas: as luzes são atualizadas de 1 a 30
-  vezes por segundo (padrão 10) e deslizam suavemente entre uma leitura e
-  outra. Ajuste em Reações > "Atualizações por segundo" e "Transição entre as
-  cores" (de instantânea a bem lenta). A página mostra quantas atualizações
-  por segundo estão sendo enviadas. O teclado acompanha até 30/s; a placa MSI
-  é limitada a 15/s para não sobrecarregar o controlador.
-  Nesse modo o Lume escreve sem esperar a confirmação de cada mudança e relê o
-  estado real dos dispositivos a cada 3 segundos.
-• LibreHardwareMonitor embutido: temperatura e watts reais da CPU, temperatura
-  da placa-mãe e rotação da ventoinha da CPU, sem instalar nem abrir outro
-  programa. Em Reações > "Ativar sensores avançados" o Windows pede permissão
-  de administrador UMA vez: o Lume instala o driver oficial PawnIO (se faltar;
-  baixado do GitHub com assinatura digital verificada) e registra a tarefa
-  "LumeRGB\Sensores" no Agendador de Tarefas. Depois disso o processo de
-  sensores inicia sozinho, sem novos avisos, só quando uma reação ou a página
-  precisa dele, e fecha junto com o Lume. "Desativar" remove a tarefa (o
-  driver PawnIO pode ser removido em Configurações > Aplicativos).
-  Se você mover a pasta do Lume, ative os sensores de novo.
-
-LUME RGB 3.1 — REAÇÕES + ATUALIZAÇÃO AUTOMÁTICA
-
-NOVO NA 3.1
-• Reações (nova página): ligue qualquer sensor do PC a qualquer zona.
-    Sensores: uso da CPU, RAM e GPU; temperatura da GPU e da CPU; consumo (W)
-    da GPU, da CPU e CPU + GPU.
-    Cada reação escolhe as zonas, a faixa de valores (ex.: 35–85 °C), as cores
-    (mín, meio opcional, máx) ou "Intensidade" (o brilho acompanha o valor), e
-    pode pulsar (respiração) acima de um limite. Modelos prontos: CPU no
-    teclado, GPU quente nas ventoinhas, Watts no gabinete, RAM no brilho.
-    Ao desligar as Reações, as zonas voltam às cores de antes.
-    Fontes: Windows (CPU, RAM, GPU), driver NVIDIA (temperatura, uso e watts
-    da GPU) e, desde a 3.2, o LibreHardwareMonitor embutido (CPU, placa-mãe).
-• Atualização automática: sempre que abre (e a cada 12 h), o Lume consulta o
-  branch main do GitHub (LksR02/FreeRGB). Se houver mudança no app, baixa o
-  código, compila com o compilador do próprio Windows e instala. Com a janela
-  aberta aparece um aviso "Reiniciar agora"; fechado na bandeja, reinicia
-  sozinho. Ajustes > Atualizações: desligar a instalação automática,
-  "Verificar agora" e a versão (commit) instalada. Detalhes de falhas em
-  %LOCALAPPDATA%\LumeRGBStandalone\erro.log.
-  Dica: deixe o Lume numa pasta sua (ex.: C:\LumeRGB), não em Arquivos de
-  Programas, para que ele possa se atualizar.
-
-LUME RGB 3.0 — NOVA INTERFACE + WIDGETS NA ÁREA DE TRABALHO
+REAÇÕES E SENSORES
+Na página Reações, escolha sensor, zonas, faixa de valores, cores ou brilho.
+O ritmo permite 1–30 atualizações por segundo; a placa é limitada a 15/s.
+O ajuste de suavização controla a resposta entre leituras. Sensores básicos
+usam recursos do Windows; os avançados usam LibreHardwareMonitor e PawnIO.
+Ativar sensores avançados registra a tarefa do Windows com uma solicitação
+inicial de administrador. O aplicativo usa essa tarefa nas próximas sessões.
+Perfis, cenas, widgets, atalhos e configurações anteriores continuam disponíveis.
 
 ABRIR
 Extraia o zip inteiro (a pasta "ui" e as DLLs precisam ficar ao lado do exe) e

@@ -1,0 +1,13 @@
+﻿PASS exact four MS7E30 headers and brightness decode
+PASS selected Rainbow header preservation
+PASS mixed-mode JRGB2 uses134 and required hidden master
+PASS brightness mask and speed preserve reserved bit
+PASS five native effect codes1..5
+PASS reject partial transition from direct/global synchronization
+PASS reject EEPROM, wrong report, short frame and unsafe native padding
+PASS wrong board identity rejected before GET or SET
+PASS native sequence old then new and verified readback
+PASS invalid batch never writes and validates all selections first
+PASS stale readback polls GET without repeating writes
+PASS mismatch and write failure never confirm
+RESULT 12 groups passed. Fake HID only; no hardware SET_FEATURE calls.

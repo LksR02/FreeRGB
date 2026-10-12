@@ -1,0 +1,8 @@
+﻿MsiNativeTests: RESULT 12 groups passed. Fake HID only; no hardware SET_FEATURE calls.
+X68KeyboardControllerTests: RESULT 54 meaningful protocol checks passed; no hardware touched.
+SettingsTests: No hardware commands sent.
+ServiceTests: ALL SERVICE TESTS PASSED
+ReactiveTests: ALL REACTIVE TESTS PASSED
+UpdaterOfflineTests: ALL OFFLINE UPDATER TESTS PASSED
+AdvancedSensorsTests: RESULT 20 advanced sensor checks passed; no driver, no Task Scheduler touched.
+SensorWorkerTests: ALL SENSOR WORKER TESTS PASSED; no driver accessed.

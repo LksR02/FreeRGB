@@ -1,0 +1,65 @@
+X68HE device/protocol mapping — bounded static investigation, 2026-10-12
+
+Scope: supplied Attack Shark Driver v4/resources/app/dist/js only. No vendor
+executable launched, network request performed, or HID command sent in this work.
+REA MCP was unavailable; these findings come from direct static file reads.
+
+OBSERVATIONS
+1. index.b078bf5f.js registry contains three X68HE variants sharing VID12625
+   (0x3151), PID20525 (0x502D), Common66_X68 layout, RGB lightLayout I,
+   magnetism=true, four layers and replaceable switches:
+   - 2270 / ry5088_x68rt004_8k_dm -> 51bbd794.js
+   - 2472 / ry5088_x682_8k_dm -> bd86972c.js
+   - 2902 / ry5088_x68v2_8k_dm -> 69a807f0.js
+2. 4a39166d.js resolves registry names to those chunks. All three chunks import
+   C from 5e635fe2.js. That file exports et as C, not CommonKbYc500 from
+   438d24dc.js. c5a66cc9.js belongs to the separate mouse protocol family.
+3. bd86972c.js only overrides keyboard matrices. Its default matrix has512
+   bytes /128 slots,71 nonzero slots including multimedia and firmware-only
+   mappings. These are firmware positions, not a consecutive66-key RGB map.
+   Machine-readable active positions are in x68-device-layout.json.
+4. 5e635fe2.js getUSBVersion sends0x8F and parses response[8]<<8|response[7].
+   The supplied raw response yields0x0303 (771). Report-ID prefix must be removed
+   before interpreting these byte positions. The supplied A8 09 bytes correspond
+   to2472 little endian, though the native identification parser is not covered
+   by this static JS scope.
+5. 5e635fe2.js implements SET_USERPIC0x0C, GET_USERPIC0x8C. Setter header is
+   [0C, profile(default0), FF, segment0..6, length56(or42 atsegment6),
+    final1(onlysegment6),0,0]. Seven56-byte chunks are sent; protocol declares
+   378 useful RGB bytes, and the128-slot384-byte array is padded/transmitted
+   through the final report. Sends use Bit7 and then vendorSleep.
+6. X68 base also exposes USERGIF0x12. Start packet is [12,0,0,0,0,0,0,0]
+   followed by vendorSleep300ms. Frame header is
+   [12,currentFrame,segment0..6,1,frameNum,frameDelayLo,frameDelayHi,0]
+   and each report carries56 RGB bytes, with sendMsgNOSleep(Bit7), sleep5ms
+   between segments. This is an available implementation, not proof that its
+   use on this firmware produces smooth playback or avoids persistent writes.
+7. LEDPARAM setter0x07 uses Bit8, whereas images/GIF use Bit7. LightAlwaysOn1,
+   UserPicture13, ScreenColor21, UserColor25 are named in this base. Registry
+   layout I exposes screen color and five user pictures, but not UserColor/GIF
+   in its light-type list. Presence in a base class does not establish UI or
+   firmware capability for every subclass.
+8. SET_USERPIC_SIMPLE20(0x14), GET_USERPIC_SIMPLE148(0x94) names exist in
+   c5a66cc9.js. No0x14/0x94 assignments or Windows Dynamic Lighting function
+   were found in the complete X68 base5e635fe2.js. Interpreting them as a
+   LampArray switch for this device is therefore unsupported by this driver.
+
+INFERENCES
+- The physical device is strongly consistent with the2472 variant, based on
+  the supplied0x8F response. Exact native ID decoding remains to corroborate.
+- Repeated effect parameter writes can be replaced only after an actually
+  supported live frame path is validated; the variant's matrix/protocol cannot
+  be borrowed from other driver families merely because opcode numbers match.
+- USERGIF could be another route to smooth transitions, but static existence
+  is insufficient to recommend continuous writes without investigating its
+  persistence and firmware playback semantics.
+
+UNKNOWNS
+- Native0x8F ID parser; native stream grid; actual meaning of0x14/0x94 on X68;
+  storage persistence and limits of per-key image/GIF; visual behavior.
+- Do not label0x14 as SET_USERPIC_SIMPLE for X68 merely from the mouse class.
+
+SHA256 anchors
+bd86972c.js 0FB59174FB3DB09DA668A21420A2233AA4477E16CDB1E748D96B1B7B9405F2FF
+5e635fe2.js 99DB04B99796DD3D604B9D207F13A122BAA878F30546B586CBF000A92CF74512
+4a39166d.js 0425F2C6966894B25B2829C46ECFE61317A9DC58D9FB080E129CC0D66867040C

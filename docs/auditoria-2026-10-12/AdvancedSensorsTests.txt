@@ -1,0 +1,15 @@
+﻿PASS helper starts and reports readings
+PASS CPU temperature read through the pipe
+PASS marker written while the helper runs
+PASS Stop ends the helper and removes the marker
+PASS bad previous exit detected at start
+PASS paused sensors never start the helper
+PASS board hang -> retried with CPU only, now running
+PASS helper error reported to the page: O driver PawnIO não está instalado.
+PASS silent helper stopped after the timeout: O LibreHardwareMonitor demorou demais para abrir. Veja o registro de erros.
+PASS slow helper running
+PASS 7 s read with heartbeats: still running, last reading kept
+PASS readings resume after the slow read
+PASS window and sensor loop never wait on the Task Scheduler (0 ms for 1000 calls)
+PASS pause/stop return immediately too
+RESULT 14 advanced sensor checks passed; no driver, no Task Scheduler touched.

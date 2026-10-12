@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 // Lume RGB application core: one background worker serializes every hardware request, so the
 // main window, the tray menu, desktop widgets and the global shortcut can all act at once safely.
 using System;
@@ -227,10 +227,10 @@ namespace LumeRgb
             var found = enumerate();
             ILightingBackend next = backendFactory(found);
             next.KeyboardLive = KeyboardLiveWanted; next.KeyboardVariant = KeyboardVariantWanted;
-            var list = next.IsConnected ? next.GetZones() : new List<RgbZone>();
             lock (gate)
             {
                 if (backend != null) backend.Dispose();
+                var list = next.IsConnected ? next.GetZones() : new List<RgbZone>();
                 backend = next; devices = found; zones = list; scannedOnce = true;
                 foreach (var z in zones) z.Name = ZoneNameUnlocked(z.Key);
                 streamedKeyboard = null;
@@ -258,9 +258,9 @@ namespace LumeRgb
             catch (Exception e) { AppLog.Write("Teclado X68HE (restaurar modo ao vivo): " + e.Message); TryRefresh(); }
         }
         // ---------- keyboard live mode ----------
-        bool KeyboardLiveWanted { get { lock (gate) return !Settings.KeyboardCompat; } }
+        bool KeyboardLiveWanted { get { lock (gate) return !Settings.KeyboardCompat && Settings.KeyboardLiveVariant != null; } }
         string KeyboardVariantWanted { get { lock (gate) return Settings.KeyboardLiveVariant ?? "screen"; } }
-        // 10-second test: red through the Screen color mode, then green over the normal effect. The user says which one showed.
+        // Reversible blue-to-red transition; enable streaming only after visual confirmation.
         public Task TestKeyboardLive()
         {
             return Enqueue("Testando o teclado: veja qual cor aparece…", delegate
@@ -270,41 +270,27 @@ namespace LumeRgb
                 finally { lock (gate) streamedKeyboard = null; TryRefresh(); }
             }, () => "Teste do teclado concluído.");
         }
-        // Windows Dynamic Lighting test: switch the keyboard's flag on, wait for it to appear as a LampArray device,
-        // then show magenta for 4 s. Returns "shown" or "replug" (the keyboard must be reconnected to appear).
+        // Test only a LampArray interface actually advertised by Windows.
         public Task<string> TestWindowsLighting()
         {
             string outcome = null;
-            var task = Enqueue("Ligando a Iluminação Dinâmica do teclado…", delegate
+            var task = Enqueue("Verificando a interface de Iluminação Dinâmica…", delegate
             {
                 EnsureReady();
-                bool? flag = backend.KeyboardDynamicLighting();
-                if (flag != true) { backend.SetKeyboardDynamicLighting(true); AppLog.Write("Teclado X68HE: Iluminação Dinâmica do Windows ligada (0x14 1)."); }
-                // The keyboard re-announces itself to Windows: look for the new LampArray interface for up to 15 s.
-                var watch = Stopwatch.StartNew();
-                while (!backend.HasLampArray && watch.Elapsed.TotalSeconds < 15) { Thread.Sleep(1500); try { ScanNow(); } catch (Exception e) { AppLog.Write("Procurar LampArray: " + e.Message); } }
-                if (!backend.HasLampArray) { outcome = "replug"; return; }
-                lock (gate) busyText = "Olhe para o teclado: ele deve ficar rosa…";
-                Raise();
-                backend.TestLampArray();
-                outcome = "shown";
-                TryRefresh();
-            }, () => outcome == "replug" ? "A Iluminação Dinâmica foi ligada no teclado, mas o Windows ainda não o mostrou. Desconecte e reconecte o cabo do teclado e teste de novo."
+                if (!backend.HasLampArray) { outcome = "unsupported"; return; }
+                backend.TestLampArray(); outcome = "shown"; TryRefresh();
+            }, () => outcome == "unsupported"
+                ? "O teclado não anuncia uma interface LampArray. O driver de fábrica não define um comando para ativá-la."
                 : "Teste concluído: o teclado ficou rosa?");
             return task.ContinueWith(t => { if (t.IsFaulted) throw t.Exception.InnerException ?? t.Exception; return outcome; });
         }
         // seen: red | green | both | none | lamp | nolamp
         public void SetKeyboardTestResult(string seen)
         {
-            if (seen == "nolamp")
-            {
-                // Windows Dynamic Lighting did not work: put the keyboard's flag back as it was.
-                Enqueue(null, delegate { EnsureReady(); backend.SetKeyboardDynamicLighting(false); }, null, true);
-            }
             Mutate(s =>
             {
                 if (seen == "lamp") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "lamparray"; }
-                else if (seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
+                else if (seen == "smooth" || seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
                 else if (seen == "green") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "overlay"; }
                 else { s.KeyboardCompat = true; }
             });
@@ -314,7 +300,8 @@ namespace LumeRgb
         // True when reactive keyboard updates go through the native live mode (no blinking).
         public bool KeyboardLive
         {
-            get { lock (gate) return !Settings.KeyboardCompat && (backend == null || !backend.KeyboardStreamUnsupported); }
+            get { lock (gate) return KeyboardLiveWanted && (backend == null ||
+                (KeyboardVariantWanted == "lamparray" ? backend.HasLampArray : !backend.KeyboardStreamUnsupported)); }
         }
         string ZoneNameUnlocked(string key)
         {
@@ -347,8 +334,12 @@ namespace LumeRgb
         }
         void ApplyNow(List<ZoneSetting> settings)
         {
-            try { backend.Apply(settings); }
+            // Manual fades use a live channel only after its visual test was confirmed.
+            backend.KeyboardLive = KeyboardLiveWanted && Settings.KeyboardLiveVariant != null; backend.KeyboardVariant = KeyboardVariantWanted;
+            try { backend.ApplyTransition(settings); }
             catch { TryRefresh(); throw; }
+            if (settings.Any(s => s.Key == "X68HE"))
+                lock (gate) streamedKeyboard = backend.KeyboardStreamed ? settings.First(s => s.Key == "X68HE") : null;
             // An explicit change replaces whatever "Desligar" remembered for those zones.
             ForgetPower(settings.Where(s => s.BrightnessPercent > 0).Select(s => s.Key));
             Refresh();
@@ -360,7 +351,7 @@ namespace LumeRgb
             if (settings == null || settings.Count == 0) throw new ArgumentException("Selecione ao menos uma zona.");
             foreach (var s in settings) s.Effect = Normalize(s.Key, s.Effect);
             return Enqueue("Aplicando iluminação…", delegate { EnsureReady(); ApplyNow(settings); },
-                () => "Iluminação atualizada" + (backend.LastWriteVerified ? " e confirmada pelos dispositivos." : "."));
+                () => backend.TransitionNote ?? ("Iluminação atualizada" + (backend.LastWriteVerified ? " e confirmada pelos dispositivos." : ".")));
         }
         public Task ApplyScene(string id)
         {
@@ -376,7 +367,7 @@ namespace LumeRgb
                 EnsureReady();
                 List<string> keys; lock (gate) keys = zones.Select(z => z.Key).ToList();
                 ApplyNow(keys.Select(k => new ZoneSetting { Key = k, Color = color, Effect = Normalize(k, effect), BrightnessPercent = brightness, SpeedPercent = speed }).ToList());
-            }, () => message ?? "Cor aplicada a todas as zonas.");
+            }, () => backend.TransitionNote ?? message ?? "Cor aplicada a todas as zonas.");
         }
 
         // ---------- power ----------
@@ -451,7 +442,7 @@ namespace LumeRgb
                 if (z.CurrentBrightnessPercent > 0) continue;
                 var saved = memory == null ? null : memory.Zones.FirstOrDefault(m => m.Key == z.Key);
                 Color color = saved != null ? SettingsStore.ParseColor(saved.ColorHex) : z.CurrentColor;
-                if (color.R + color.G + color.B < 24) color = Color.White;
+                if (saved == null && color.R + color.G + color.B < 24) color = Color.White;
                 targets.Add(new ZoneSetting { Key = z.Key, Color = color, BrightnessPercent = saved != null && saved.Brightness > 0 ? saved.Brightness : 100,
                     Effect = Normalize(z.Key, saved != null ? saved.Effect : z.Effect), SpeedPercent = saved != null ? saved.Speed : z.CurrentSpeedPercent });
             }

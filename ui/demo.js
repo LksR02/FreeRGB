@@ -12,7 +12,7 @@ export function createDemoBridge(emit, emitSensors = () => {}) {
     ['night', 'Noite', '#3A2BFF', '#120B4D', 'Breathing', 20, 0], ['storm', 'Tempestade', '#B8C6FF', '#4B6BFF', 'Lightning', 100, 100],
   ].map(([id, name, color, glow, effect, brightness, speed]) => ({ id, name, color, glow, effect, brightness, speed }));
   const state = {
-    version: '3.7', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
+    version: '3.8', rev: 1, busy: false, busyText: '', status: 'Modo demonstração: nenhum hardware é alterado.', statusError: false,
     connected: true, scanned: true, deviceCount: 2, power: 'on', powerPending: false, invalidSettings: false, notes: [],
     zones: [
       zone('JRGB1', 'RGB 1', 'rgb', '#7C6CFF', 'Static', 1), zone('JRGB2', 'RGB 2', 'rgb', '#7C6CFF', 'Static', 1),

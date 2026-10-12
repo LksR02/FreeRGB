@@ -17,7 +17,7 @@ namespace LumeRgb
 {
     static class Program
     {
-        public const string Version = "3.7";
+        public const string Version = "3.8";
         static readonly string[] Commands = { "show", "toggle", "on", "off" };
         public static string EventName(string command) { return "Local\\LumeRGBStandalone." + command; }
 
@@ -49,6 +49,10 @@ namespace LumeRgb
         {
             // Elevated helpers (advanced sensors): no window, no single-instance lock.
             if (args.Contains("--sensor-host")) return SensorHostProgram.Run();
+            int workerArgument = Array.IndexOf(args, "--sensor-worker"), workerParent;
+            if (workerArgument >= 0)
+                return workerArgument + 2 < args.Length && Int32.TryParse(args[workerArgument + 2], out workerParent)
+                    ? SensorHostProgram.RunWorker(args[workerArgument + 1], workerParent) : 2;
             if (args.Contains("--setup-sensors")) return SensorSetup.Run(false);
             if (args.Contains("--remove-sensors")) return SensorSetup.Run(true);
             string command = args.Contains("--toggle") ? "toggle" : args.Contains("--on") ? "on" : args.Contains("--off") ? "off" : "show";
@@ -159,7 +163,7 @@ namespace LumeRgb
             if (Updater.Busy || exiting) return;
             Updater.Check().ContinueWith(t => Post(() =>
             {
-                if (Updater.State == "available" && (!Service.Settings.AutoUpdateDisabled)) InstallUpdate(false);
+                if (Updater.State == "available" && !Updater.LocalBuild && (!Service.Settings.AutoUpdateDisabled)) InstallUpdate(false);
             }));
         }
         // Downloads + compiles in the background. Applies right away when nobody is looking at the window.

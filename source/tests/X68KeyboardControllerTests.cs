@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using LumeRgb;
@@ -30,7 +30,7 @@ class X68KeyboardControllerTests
             if (report[1] == 0x87) { QueryCount++; return; }
             if (report[1] == 0x8F || report[1] == 0x94) return;
             if (report[1] == 0x14) { DynamicOffWrites++; DynamicLight = report[2] == 1; return; }
-            if (report[1] == 0x0F) { FrameWrites++; return; }
+            if (report[1] == 0x0E) { FrameWrites++; return; }
             LightingWrites++; LastWrite = (byte[])report.Clone();
             if (!BadReadback && !(RefuseLive && report[2] == 21))
             {
@@ -73,52 +73,49 @@ class X68KeyboardControllerTests
         wrong = new Fake(); wrong.State[4] = 5; Throws<InvalidDataException>(()=>new X68KeyboardController().Connect(wrong),"unknown brightness refused");
         wrong = new Fake(); controller = new X68KeyboardController(); controller.Connect(wrong); wrong.BadReadback = true;
         Throws<IOException>(()=>controller.Apply(Setting(25,"Static",50)),"wrong independent readback reported"); Assert(!controller.IsConnected && wrong.Disposed,"readback failure disconnects");
-        // Live colour frames (manufacturer's Dynamic RGB protocol)
-        byte[] rgbFrame = new byte[378]; for (int i = 0; i < rgbFrame.Length; i++) rgbFrame[i] = (byte)i;
-        var packets = X68KeyboardController.BuildSyncFrame(rgbFrame);
-        Assert(packets.Count == 7, "126-cell frame splits into 7 chunks of 56 bytes");
-        bool layout = true;
-        for (int c = 0; c < packets.Count; c++)
-        {
-            var pk = packets[c]; X68WindowsHidTransport.ValidateOutgoingReport(pk);
-            int frameSum = 0; for (int i = 1; i <= 7; i++) frameSum += pk[i];
-            if (pk[0] != 0 || pk[1] != 0x0F || pk[2] != 1 || pk[3] != c || pk[4] != 56 || pk[5] != (c == 6 ? 1 : 0) || pk[6] != 0 || pk[7] != 0 || pk[8] != (byte)(255 - (frameSum & 255))) layout = false;
-            for (int i = 0; i < Math.Min(56, 378 - c * 56); i++) if (pk[9 + i] != rgbFrame[c * 56 + i]) layout = false;
-        }
-        Assert(layout, "frame header, Bit7 checksum, chunk/last flags and colour bytes match the vendor app");
+        // Golden packet captured from supplied iot_driver v215 for device2472.
+        var packet = X68KeyboardController.BuildLiveReport(Color.FromArgb(47, 49, 48), 100);
+        byte[] golden = new byte[65]; golden[1] = 14; golden[2] = 47; golden[3] = 49; golden[4] = 48; golden[8] = 97;
+        bool layout = packet.Length == golden.Length;
+        for (int i = 0; i < golden.Length && layout; i++) if (packet[i] != golden[i]) layout = false;
+        Assert(layout, "single RGB report exactly matches captured factory packet including checksum and padding");
+        X68WindowsHidTransport.ValidateOutgoingReport(packet);
+        Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(X68KeyboardController.BuildCommand(0x0F)), "failed legacy 0x0F protocol rejected");
         var mode = X68KeyboardController.BuildSyncMode(fake.State); X68WindowsHidTransport.ValidateOutgoingReport(mode);
         Assert(mode[1] == 7 && mode[2] == 21 && mode[4] == 4 && mode[5] == 0, "live mode = native Screen color effect at full hardware brightness");
-        bad = (byte[])packets[0].Clone(); bad[8] ^= 1; Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(bad), "corrupt frame checksum refused");
+        bad = (byte[])packet.Clone(); bad[8] ^= 1; Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(bad), "corrupt frame checksum refused");
         Fake live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
         int before = live.LightingWrites; controller.Stream(Color.FromArgb(10, 20, 30), 50); controller.Stream(Color.FromArgb(40, 50, 60), 100);
         Assert(live.LightingWrites - before == 1 && live.State[2] == 21, "two streamed colours send the mode command only once");
         controller.Dispose();
-        // The handshake only reads the Windows Dynamic Lighting flag; it never changes it.
+        // The handshake uses only the known device-info query.
         live = new Fake(); live.DynamicLight = true; controller = new X68KeyboardController(); controller.Connect(live);
         controller.Stream(Color.Red, 100);
-        Assert(live.DynamicOffWrites == 0 && live.DynamicLight && live.FrameWrites >= 7, "handshake leaves Windows Dynamic Lighting as it is, then frames");
-        // Explicit switch (0x14 1 / 0x14 0), as the manufacturer's Dynamic RGB does for its "system" channel.
-        controller.SetDynamicLighting(false); Assert(!live.DynamicLight && controller.DynamicLighting() == false, "Dynamic Lighting switched off and read back");
-        controller.SetDynamicLighting(true); Assert(live.DynamicLight && controller.DynamicLighting() == true && !controller.IsStreaming, "Dynamic Lighting switched on (stream stopped first)");
-        bad = X68KeyboardController.BuildCommand(0x14, 2); Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(bad), "0x14 only accepts 0 or 1");
+        Assert(live.DynamicOffWrites == 0 && live.DynamicLight && live.FrameWrites >= 1, "handshake leaves Windows Dynamic Lighting as it is, then frames");
+        Throws<NotSupportedException>(() => controller.SetDynamicLighting(true), "unknown LampArray toggle refused without HID traffic");
+        Assert(controller.DynamicLighting() == null && controller.IsStreaming, "unestablished capability is unknown and does not interrupt streaming");
+        Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(X68KeyboardController.BuildCommand(0x14, 1)), "unknown 0x14 write rejected");
+        Throws<ArgumentException>(() => X68WindowsHidTransport.ValidateOutgoingReport(X68KeyboardController.BuildCommand(0x94)), "unknown 0x94 query rejected");
         controller.Dispose();
         // Continuous stream like Dynamic RGB: ~30 frames/s from one call, no GET in between, stops when no longer fed.
         live = new Fake(); controller = new X68KeyboardController(); controller.Connect(live);
         controller.Stream(Color.Red, 100); int q0 = live.QueryCount, f0 = live.FrameWrites;
         System.Threading.Thread.Sleep(1000);
-        int perSecond = (live.FrameWrites - f0) / 7;
+        int perSecond = (live.FrameWrites - f0);
         Assert(perSecond >= 24 && perSecond <= 36, "one colour keeps streaming at ~30 frames/s (" + perSecond + "/s)");
         controller.GetZone(); Assert(live.QueryCount == q0 && controller.IsStreaming, "no GET request while streaming (read-back uses the last state)");
         System.Threading.Thread.Sleep((X68KeyboardController.StreamHoldSeconds + 1) * 1000);
         int stopped = live.FrameWrites; System.Threading.Thread.Sleep(300);
         Assert(!controller.IsStreaming && live.FrameWrites == stopped, "stream stops by itself when nobody feeds it");
+        controller.Stream(Color.Blue, 100); controller.DynamicLighting();
+        Assert(controller.IsStreaming, "reading the Dynamic Lighting flag does not stop a stream");
         controller.Stream(Color.Blue, 100); controller.Apply(Setting(100, "Static", 50)); stopped = live.FrameWrites; System.Threading.Thread.Sleep(300);
         Assert(!controller.IsStreaming && live.FrameWrites == stopped && live.State[2] == 1, "a normal command ends the stream first");
         controller.Dispose();
         // "overlay" variant: frames over the normal effect, never the Screen color effect (and leaves it if stuck there).
         live = new Fake(); live.State[2] = 21; live.State[5] = 0; controller = new X68KeyboardController(); controller.Connect(live); controller.LiveVariant = "overlay";
         controller.Stream(Color.Green, 100);
-        Assert(live.State[2] == 1 && live.FrameWrites >= 7, "overlay variant: leaves Screen color, streams over a static effect");
+        Assert(live.State[2] == 1 && live.FrameWrites >= 1, "overlay variant: leaves Screen color, streams over a static effect");
         controller.Stream(Color.Red, 100); Assert(live.State[2] == 1, "overlay variant never switches to Screen color");
         controller.Dispose();
         // The 10-second keyboard test: red via Screen color, green over the normal effect, then the keyboard is restored.
@@ -126,13 +123,13 @@ class X68KeyboardControllerTests
         var hub = new LightingHub(); hub.Attach(null, controller, "|X68HE:");
         byte[] original = (byte[])live.State.Clone();
         hub.TestKeyboardLive();
-        Assert(live.FrameWrites / 7 >= 120, "test streams for ~6 s (" + live.FrameWrites / 7 + " frames)");
+        Assert(live.FrameWrites >= 120, "test sends continuous RGB colours (" + live.FrameWrites + " frames)");
         Assert(live.State[2] == original[2] && live.State[6] == original[6] && live.State[7] == original[7] && live.State[8] == original[8] && !controller.IsStreaming, "after the test the keyboard is back to its own effect and colour");
         hub.Dispose();
-        // A keyboard that refuses the live mode is reported, stays connected and sends no frames.
+        // A keyboard refusing the mode gets one initial colour, but no repeating stream.
         live = new Fake(); live.RefuseLive = true; controller = new X68KeyboardController(); controller.Connect(live);
         Throws<NotSupportedException>(() => controller.Stream(Color.Red, 100), "refused live mode reported");
-        Assert(controller.IsConnected && controller.StreamUnsupported && live.FrameWrites == 0, "refused live mode: still connected, no frames");
+        Assert(controller.IsConnected && controller.StreamUnsupported && live.FrameWrites == 1 && !controller.IsStreaming, "refused mode: connected, initial colour only, no repeating stream");
         int writes = live.LightingWrites; Throws<NotSupportedException>(() => controller.Stream(Color.Red, 100), "refused live mode not retried");
         Assert(live.LightingWrites == writes, "no repeated mode commands after a refusal");
         controller.ApplyFast(Setting(100, "Static", 50)); Assert(live.State[2] == 1, "classic fast command still works");
