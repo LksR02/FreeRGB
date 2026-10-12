@@ -1,0 +1,28 @@
+﻿Lume RGB: interface, armazenamento, descoberta, widgets e integração locais.
+
+O controlador MSI em C# implementa o protocolo documentado no código aberto do
+OpenRGB: MSIMotherboard185Controller / MSIMotherboardCommon, por T-bond,
+Adam Honse e colaboradores. A versão consultada está fixada no commit
+3f2f28015d8180d21094727bd642471c11ced3f9. Licença GPL-2.0-or-later.
+
+O tratamento de feature reports Windows segue o comportamento público do
+projeto libusb/hidapi e a documentação Windows HID. O app chama diretamente
+hid.dll e kernel32.dll; não distribui hidapi.dll nem importa código C binário.
+
+O protocolo de iluminação X68HE foi confirmado no programa oficial qmk.top,
+com metadados e hashes preservados no relatório. A implementação C# local é
+independente dessa aplicação web e não conecta a ela durante a execução.
+
+Efeitos visuais: Shaders (https://github.com/shader-effects-inc/shaders),
+pacote npm "shaders" 4.0.4, licença MIT, Copyright (c) 2026 Shader Effects Inc.
+Distribuído em ui/lib/shaders.js; licença em ui/lib/SHADERS-LICENSE.txt.
+A telemetria da biblioteca é desativada e a página bloqueia conexões externas.
+
+Interface hospedada pelo Microsoft Edge WebView2. As DLLs
+Microsoft.Web.WebView2.Core.dll, Microsoft.Web.WebView2.WinForms.dll e
+WebView2Loader.dll (SDK 1.0.4022.49) são redistribuídas conforme
+WebView2-LICENSE.txt. Copyright (C) Microsoft Corporation.
+
+Marcas e nomes dos dispositivos pertencem aos respectivos fabricantes; nenhuma
+afiliação é alegada. Este app não é uma distribuição oficial da MSI,
+ATTACK SHARK, OpenRGB ou Shader Effects Inc.

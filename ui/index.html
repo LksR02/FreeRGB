@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:">
+<title>Lume RGB</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="booting">
+<canvas id="bg" class="bg-canvas" aria-hidden="true"></canvas>
+<div class="bg-fallback" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="bg-noise" aria-hidden="true"></div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><span></span></div>
+      <div><div class="brand-name">lume</div><div class="brand-sub">RGB, do seu jeito</div></div>
+    </div>
+    <nav class="nav" id="nav">
+      <div class="nav-indicator" id="navIndicator"></div>
+      <button data-page="home" class="active"><svg><use href="#i-home"/></svg><span>Início</span><kbd>1</kbd></button>
+      <button data-page="studio"><svg><use href="#i-palette"/></svg><span>Estúdio</span><kbd>2</kbd></button>
+      <button data-page="scenes"><svg><use href="#i-sparkles"/></svg><span>Cenas e perfis</span><kbd>3</kbd></button>
+      <button data-page="widgets"><svg><use href="#i-widgets"/></svg><span>Widgets</span><kbd>4</kbd></button>
+      <button data-page="devices"><svg><use href="#i-cpu"/></svg><span>Dispositivos</span><kbd>5</kbd></button>
+      <button data-page="settings"><svg><use href="#i-gear"/></svg><span>Ajustes</span><kbd>6</kbd></button>
+    </nav>
+    <div class="side-power" id="sidePower">
+      <button class="mini-switch" id="miniSwitch" role="switch" aria-checked="true" aria-label="Ligar ou desligar tudo"><span></span></button>
+      <div><div class="side-power-title" id="sidePowerTitle">Tudo ligado</div><div class="side-power-sub" id="hotkeyHint">Ctrl + Alt + L</div></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Início</h1>
+        <p id="pageSubtitle">Sua iluminação inteira, em um toque.</p>
+      </div>
+      <div class="top-actions">
+        <div class="chip status-chip" id="connChip"><span class="dot"></span><span id="connText">Procurando…</span></div>
+        <button class="icon-btn" id="rescanBtn" title="Procurar dispositivos (Ctrl + R)"><svg><use href="#i-refresh"/></svg></button>
+      </div>
+    </header>
+
+    <div class="pages" id="pages">
+      <!-- INÍCIO -->
+      <section class="page active" data-page="home">
+        <div class="hero glass spotlight">
+          <div class="hero-orb" id="heroOrb">
+            <canvas id="heroCanvas"></canvas>
+            <div class="hero-css-ring"></div>
+            <button class="power-core" id="powerCore" aria-label="Ligar ou desligar tudo">
+              <svg class="power-icon"><use href="#i-power"/></svg>
+              <span id="powerCoreLabel">LIGADO</span>
+              <i class="power-spin"></i>
+            </button>
+            <div class="burst" id="burst"></div>
+          </div>
+          <div class="hero-copy">
+            <div class="eyebrow" id="heroEyebrow">Iluminação</div>
+            <h2 class="hero-title" id="heroTitle">Tudo ligado</h2>
+            <p class="hero-sub" id="heroSub">—</p>
+            <div class="hero-actions">
+              <button class="btn primary big" id="heroToggle"><svg><use href="#i-power"/></svg><span>Desligar tudo</span></button>
+              <button class="btn ghost big" data-goto="widgets"><svg><use href="#i-widgets"/></svg><span>Widget na área de trabalho</span></button>
+            </div>
+            <div class="hero-meta">
+              <div><b id="statZones">0</b><span>zonas</span></div>
+              <div><b id="statDevices">0</b><span>dispositivos</span></div>
+              <div><b id="statWidgets">0</b><span>widgets</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="section-head"><h3>Suas zonas</h3><button class="link" data-goto="studio">Abrir o estúdio →</button></div>
+        <div class="zone-grid" id="zoneGrid"></div>
+        <div class="section-head"><h3>Cenas rápidas</h3><button class="link" data-goto="scenes">Ver todas →</button></div>
+        <div class="scene-row" id="sceneRow"></div>
+      </section>
+
+      <!-- ESTÚDIO -->
+      <section class="page" data-page="studio">
+        <div class="studio">
+          <div class="glass panel targets">
+            <div class="panel-head"><h3>Onde aplicar</h3><button class="chip-btn" id="selectAll">Todas</button></div>
+            <div class="target-list" id="targetList"></div>
+            <p class="hint" id="targetHint"></p>
+          </div>
+          <div class="glass panel picker">
+            <div class="panel-head"><h3>Cor</h3><div class="hex-field"><span>#</span><input id="hexInput" maxlength="7" spellcheck="false" aria-label="Cor hexadecimal"></div></div>
+            <div class="wheel-wrap">
+              <canvas id="wheel" width="560" height="560" aria-label="Roda de cores"></canvas>
+              <div class="wheel-knob" id="wheelKnob"></div>
+            </div>
+            <div class="slider-row"><label>Intensidade da cor</label><input type="range" id="valueRange" min="0" max="100" class="range value-range"></div>
+            <div class="swatches" id="swatches"></div>
+          </div>
+          <div class="glass panel controls">
+            <div class="preview" id="preview">
+              <div class="preview-fan"><i></i><i></i><i></i><b></b></div>
+              <div class="preview-keys" id="previewKeys"></div>
+              <div class="preview-strip"></div>
+              <span class="preview-label" id="previewLabel">Prévia</span>
+            </div>
+            <div class="control">
+              <div class="control-head"><label>Brilho</label><output id="brightOut">100%</output></div>
+              <input type="range" id="brightRange" min="0" max="100" step="1" class="range">
+              <div class="ticks" id="brightTicks"></div>
+            </div>
+            <div class="control">
+              <div class="control-head"><label>Efeito</label><output id="effectOut"></output></div>
+              <div class="effects" id="effects"></div>
+            </div>
+            <div class="control" id="speedControl">
+              <div class="control-head"><label>Ritmo</label><output id="speedOut">Médio</output></div>
+              <input type="range" id="speedRange" min="0" max="100" step="50" class="range">
+            </div>
+            <label class="toggle-line"><input type="checkbox" id="liveApply"><span class="switch"></span><span>Aplicar ao vivo enquanto ajusto</span></label>
+            <div class="apply-row">
+              <button class="btn ghost" id="revertBtn">Descartar</button>
+              <button class="btn primary grow" id="applyBtn"><svg><use href="#i-check"/></svg><span>Aplicar</span></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CENAS E PERFIS -->
+      <section class="page" data-page="scenes">
+        <div class="section-head"><h3>Cenas</h3><p>Um clique aplica a mesma atmosfera a todas as zonas.</p></div>
+        <div class="scene-grid" id="sceneGrid"></div>
+        <div class="section-head"><h3>Seus perfis</h3><p>Guardam a configuração exata de cada zona.</p></div>
+        <div class="glass save-profile">
+          <svg><use href="#i-bookmark"/></svg>
+          <input id="profileName" maxlength="80" placeholder="Nome do perfil, ex.: Noite de jogo">
+          <button class="btn primary" id="saveProfile"><svg><use href="#i-plus"/></svg><span>Salvar estado atual</span></button>
+        </div>
+        <div class="profile-grid" id="profileGrid"></div>
+      </section>
+
+      <!-- WIDGETS -->
+      <section class="page" data-page="widgets">
+        <div class="widgets-intro glass">
+          <div>
+            <h3>Ligue e desligue tudo direto da área de trabalho</h3>
+            <p>Escolha um estilo e ele aparece no canto da tela. Arraste para posicionar; clique com o botão direito para opções. Os widgets continuam funcionando com esta janela fechada (o Lume fica na bandeja).</p>
+          </div>
+          <button class="btn ghost" id="highlightWidgets"><svg><use href="#i-target"/></svg><span>Mostrar meus widgets</span></button>
+        </div>
+        <div class="widget-gallery">
+          <article class="glass widget-card" data-style="orb">
+            <div class="wstage"><div class="w-orb"><div class="w-orb-ring"></div><div class="w-orb-disk"><svg><use href="#i-power"/></svg><small>LIGADO</small></div></div></div>
+            <h4>Orbe</h4><p>Um botão redondo com anel de luz nas cores das suas zonas.</p>
+            <button class="btn primary" data-add="orb"><svg><use href="#i-plus"/></svg><span>Adicionar</span></button>
+          </article>
+          <article class="glass widget-card" data-style="pill">
+            <div class="wstage"><div class="w-pill"><div class="w-switch"><span></span></div><div class="w-pill-text"><b>Lume RGB</b><small>Ligado · 5 zonas</small></div><div class="w-dots"></div></div></div>
+            <h4>Pílula</h4><p>Interruptor compacto com o estado e as cores de cada zona.</p>
+            <button class="btn primary" data-add="pill"><svg><use href="#i-plus"/></svg><span>Adicionar</span></button>
+          </article>
+          <article class="glass widget-card" data-style="panel">
+            <div class="wstage"><div class="w-panel"><div class="w-panel-top"><div class="w-mini-orb"><svg><use href="#i-power"/></svg></div><div class="w-pill-text"><b>Lume RGB</b><small>Ligado · 5 zonas</small></div></div><div class="w-chips"></div></div></div>
+            <h4>Painel com cenas</h4><p>Liga/desliga e troca de cena ou perfil sem abrir o app.</p>
+            <button class="btn primary" data-add="panel"><svg><use href="#i-plus"/></svg><span>Adicionar</span></button>
+          </article>
+        </div>
+        <div class="widgets-bottom">
+          <div class="glass panel">
+            <div class="panel-head"><h3>Na sua área de trabalho</h3><button class="chip-btn danger" id="removeAllWidgets">Remover todos</button></div>
+            <div class="active-widgets" id="activeWidgets"></div>
+          </div>
+          <div class="glass panel">
+            <div class="panel-head"><h3>Comportamento</h3></div>
+            <label class="toggle-line"><input type="checkbox" data-pref="widgetsOnTop"><span class="switch"></span><span>Manter os widgets por cima das janelas</span></label>
+            <label class="toggle-line"><input type="checkbox" data-pref="widgetsStill" data-invert="1"><span class="switch"></span><span>Animar as cores dos widgets</span></label>
+            <label class="toggle-line"><input type="checkbox" data-pref="startWithWindows"><span class="switch"></span><span>Iniciar com o Windows (só bandeja e widgets)</span></label>
+            <label class="toggle-line"><input type="checkbox" data-pref="hotkey"><span class="switch"></span><span>Atalho global <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>L</kbd> liga/desliga tudo</span></label>
+            <button class="btn ghost wide" id="makeShortcut"><svg><use href="#i-link"/></svg><span>Criar ícone “Ligar-Desligar RGB” na área de trabalho</span></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- DISPOSITIVOS -->
+      <section class="page" data-page="devices">
+        <div class="glass device-toolbar">
+          <svg><use href="#i-search"/></svg>
+          <input id="deviceSearch" placeholder="Buscar dispositivo ou fabricante…">
+          <button class="btn ghost" id="rescan2"><svg><use href="#i-refresh"/></svg><span>Detectar novamente</span></button>
+        </div>
+        <div class="device-notes" id="deviceNotes"></div>
+        <div class="device-list" id="deviceList"></div>
+      </section>
+
+      <!-- AJUSTES -->
+      <section class="page" data-page="settings">
+        <div class="settings-grid">
+          <div class="glass panel">
+            <div class="panel-head"><h3>Visual</h3></div>
+            <p class="hint">Efeitos em WebGPU feitos com a biblioteca <b>Shaders</b>. Comece no máximo e ajuste depois.</p>
+            <div class="segmented" id="visualLevel">
+              <button data-level="max">Máximo</button><button data-level="balanced">Equilibrado</button><button data-level="light">Leve</button>
+            </div>
+            <label class="toggle-line"><input type="checkbox" data-pref="reduceMotion"><span class="switch"></span><span>Reduzir movimento</span></label>
+            <p class="hint" id="gpuInfo"></p>
+          </div>
+          <div class="glass panel">
+            <div class="panel-head"><h3>Janela</h3></div>
+            <label class="toggle-line"><input type="checkbox" data-pref="alwaysOnTop"><span class="switch"></span><span>Manter esta janela sempre visível</span></label>
+            <label class="toggle-line"><input type="checkbox" data-pref="quitOnClose" data-invert="1"><span class="switch"></span><span>Ao fechar, continuar na bandeja (widgets e atalho ativos)</span></label>
+            <label class="toggle-line"><input type="checkbox" data-pref="liveApply"><span class="switch"></span><span>Aplicar ao vivo no Estúdio</span></label>
+            <button class="btn ghost wide" id="quitApp"><svg><use href="#i-x"/></svg><span>Encerrar o Lume completamente</span></button>
+          </div>
+          <div class="glass panel">
+            <div class="panel-head"><h3>Seus dados</h3></div>
+            <div class="btn-grid">
+              <button class="btn ghost" id="exportBtn"><svg><use href="#i-download"/></svg><span>Exportar</span></button>
+              <button class="btn ghost" id="importBtn"><svg><use href="#i-upload"/></svg><span>Importar</span></button>
+              <button class="btn ghost" data-open="settings"><svg><use href="#i-folder"/></svg><span>Pasta das configurações</span></button>
+              <button class="btn ghost" data-open="source"><svg><use href="#i-code"/></svg><span>Código-fonte</span></button>
+            </div>
+            <p class="hint">Tudo fica neste PC: %LOCALAPPDATA%\LumeRGBStandalone. Sem conta, sem internet.</p>
+          </div>
+          <div class="glass panel about">
+            <div class="panel-head"><h3>Sobre</h3></div>
+            <p><b>Lume RGB <span id="appVersion"></span></b> controla diretamente por USB/HID a placa MSI MS-7E30 (JRGB1, JRGB2, JRAINBOW1, JRAINBOW2) e o teclado X68HE.</p>
+            <p class="hint">GPL-2.0-or-later. Protocolo MSI baseado no OpenRGB. Efeitos visuais: Shaders (MIT). Interface: Microsoft Edge WebView2.</p>
+            <p class="hint">Atalhos: <kbd>1</kbd>–<kbd>6</kbd> páginas · <kbd>Ctrl</kbd>+<kbd>R</kbd> detectar · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> aplicar · <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> liga/desliga (em qualquer lugar)</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer class="statusbar" id="statusbar"><span class="status-dot"></span><span id="statusText">Iniciando…</span><span class="busy-bar"></span></footer>
+  </main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="demo-badge" id="demoBadge" hidden>Modo demonstração · aberto fora do app</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.4 0 2-1 2-2 0-1.5-1.5-1.6-1.5-3 0-1.1.9-2 2-2H17a4 4 0 0 0 4-4c0-4-4-7-9-7Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7" r="1.2"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M10 3l1.6 4.4L16 9l-4.4 1.6L10 15l-1.6-4.4L4 9l4.4-1.6Z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8Z"/></symbol>
+    <symbol id="i-widgets" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2.5"/><circle cx="17" cy="7" r="4"/><rect x="3" y="14" width="18" height="7" rx="3.5"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16Z"/><path d="m13.5 6.5 4 4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/></symbol>
+    <symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="1.6"/><path d="M12 10.4c-1-3 0-5.4 2.6-5.6 1.8 0 2.6 2.1.6 4L13.3 10.6"/><path d="M13.4 12.8c3.1.6 4.6 2.7 3.4 4.9-.9 1.6-3.1 1.2-3.6-1.4l-.4-2.2"/><path d="M10.6 12.9c-2.1 2.4-4.7 2.6-6 .4-.9-1.6.6-3.3 3.1-2.5l2.2.7"/></symbol>
+    <symbol id="i-strip" viewBox="0 0 24 24"><rect x="2.5" y="8" width="19" height="8" rx="2"/><circle cx="7" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="17" cy="12" r="1.3"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+    <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4Z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 21V9M7 14l5-5 5 5M4 3h16"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7Z"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><path d="M12 2v14"/><path d="m9 5 3-3 3 3"/><circle cx="12" cy="19" r="3"/><path d="M12 13 7 10V8M12 11l5-3V6"/></symbol>
+    <symbol id="i-static" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></symbol>
+    <symbol id="i-breath" viewBox="0 0 24 24"><path d="M2 12c3 0 3-6 6-6s3 12 6 12 3-6 6-6h2"/></symbol>
+    <symbol id="i-flash" viewBox="0 0 24 24"><path d="M3 18V6M8 18V6M13 18V6M18 18V6"/></symbol>
+    <symbol id="i-dflash" viewBox="0 0 24 24"><path d="M3 18V6M6 18V6M13 18V6M16 18V6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7Z"/></symbol>
+  </defs>
+</svg>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+﻿LUME RGB 3.0 — NOVA INTERFACE + WIDGETS NA ÁREA DE TRABALHO
+
+ABRIR
+Extraia o zip inteiro (a pasta "ui" e as DLLs precisam ficar ao lado do exe) e
+abra LumeRGB.exe. A interface usa o Microsoft Edge WebView2, que já vem no
+Windows 10/11. Se ele faltar, o app mostra o link oficial para instalar.
+Deixe outros programas de RGB fechados (OpenRGB, MSI Center/Mystic Light).
+
+O QUE HÁ DE NOVO
+• Interface nova com efeitos em WebGPU (biblioteca Shaders): o fundo, o anel de
+  neon e as cores do app acompanham as cores reais das suas zonas.
+• Botão gigante "Ligar/Desligar tudo". Desligar guarda o estado exato de cada
+  zona (incluindo efeitos da placa); Ligar restaura exatamente como estava.
+• Widgets na área de trabalho (página Widgets ou ícone da bandeja):
+    Orbe  — botão redondo liga/desliga.
+    Pílula — interruptor com o estado e as cores das zonas.
+    Painel — liga/desliga + 5 atalhos de cena/perfil.
+  Arraste para posicionar. Botão direito: travar posição, remover, cenas,
+  perfis, "manter por cima das janelas". As posições ficam salvas.
+• O Lume continua na bandeja ao fechar a janela: widgets e atalho seguem ativos.
+• Atalho global Ctrl + Alt + L liga/desliga tudo de qualquer lugar.
+• Ícone "Ligar-Desligar RGB" na área de trabalho (página Widgets). O exe também
+  aceita --toggle, --on, --off (útil em Stream Deck/teclas de macro) e
+  --background (abre só bandeja e widgets).
+• Iniciar com o Windows (opcional, só bandeja e widgets).
+• Cenas prontas (Aurora, Oceano, Floresta, Pôr do sol, Sakura, Foco, Noite,
+  Tempestade), perfis com renomear/excluir, paleta de cores, roda de cores,
+  prévia animada do efeito e "Aplicar ao vivo".
+• Ajustes > Visual: Máximo / Equilibrado / Leve e "Reduzir movimento".
+
+ATALHOS DA JANELA
+1–6: páginas · Ctrl + R: detectar dispositivos · Ctrl + Enter: aplicar no
+Estúdio · Esc: descartar a prévia · Ctrl + Clique: marcar várias zonas.
+
+COMO FUNCIONA O DESLIGAR
+"Desligar tudo" coloca o brilho de todas as zonas em zero (o mesmo "desligado"
+físico da placa e do teclado) e grava antes, em settings.json, o estado atual.
+"Ligar tudo" regrava esse estado. Se você aplicar uma cor a uma zona enquanto
+tudo está desligado, aquela zona acende e sai da memória.
+A placa nunca recebe a opção de salvar em flash.
+
+DISPOSITIVOS CONTROLADOS
+MSI B650M GAMING WIFI (MS-7E30): JRGB1, JRGB2, JRAINBOW1, JRAINBOW2.
+Teclado X68HE: cor, brilho e efeito global (fixa ou respiração).
+Outros dispositivos aparecem na lista, mas não recebem comandos.
+
+CONFIGURAÇÕES
+%LOCALAPPDATA%\LumeRGBStandalone\settings.json (anterior em settings.json.bak).
+Configurações da versão anterior são carregadas normalmente.
+
+RECOMPILAR
+No PowerShell: source\build.ps1 (usa o csc do .NET Framework do Windows).
+Testes sem hardware em source\tests. A interface fica em ui\ (HTML/CSS/JS):
+abrir ui\index.html num navegador mostra um modo demonstração.
+Para ver ferramentas de desenvolvedor na janela: LumeRGB.exe --devtools
+
+LICENÇA
+GPL-2.0-or-later (LICENSE). Atribuições em ATRIBUICOES.txt.
