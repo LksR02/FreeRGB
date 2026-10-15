@@ -24,9 +24,10 @@
       <button data-page="home" class="active"><svg><use href="#i-home"/></svg><span>Início</span><kbd>1</kbd></button>
       <button data-page="studio"><svg><use href="#i-palette"/></svg><span>Estúdio</span><kbd>2</kbd></button>
       <button data-page="scenes"><svg><use href="#i-sparkles"/></svg><span>Cenas e perfis</span><kbd>3</kbd></button>
-      <button data-page="widgets"><svg><use href="#i-widgets"/></svg><span>Widgets</span><kbd>4</kbd></button>
-      <button data-page="devices"><svg><use href="#i-cpu"/></svg><span>Dispositivos</span><kbd>5</kbd></button>
-      <button data-page="settings"><svg><use href="#i-gear"/></svg><span>Ajustes</span><kbd>6</kbd></button>
+      <button data-page="reactions"><svg><use href="#i-pulse"/></svg><span>Reações</span><i class="nav-live" id="navLive"></i><kbd>4</kbd></button>
+      <button data-page="widgets"><svg><use href="#i-widgets"/></svg><span>Widgets</span><kbd>5</kbd></button>
+      <button data-page="devices"><svg><use href="#i-cpu"/></svg><span>Dispositivos</span><kbd>6</kbd></button>
+      <button data-page="settings"><svg><use href="#i-gear"/></svg><span>Ajustes</span><kbd>7</kbd></button>
     </nav>
     <div class="side-power" id="sidePower">
       <button class="mini-switch" id="miniSwitch" role="switch" aria-checked="true" aria-label="Ligar ou desligar tudo"><span></span></button>
@@ -45,6 +46,13 @@
         <button class="icon-btn" id="rescanBtn" title="Procurar dispositivos (Ctrl + R)"><svg><use href="#i-refresh"/></svg></button>
       </div>
     </header>
+
+    <div class="update-banner" id="updateBanner" hidden>
+      <div class="ub-icon"><svg><use href="#i-download"/></svg></div>
+      <div class="ub-text"><b id="ubTitle">Nova versão disponível</b><span id="ubSub"></span></div>
+      <button class="btn ghost" id="ubLater">Depois</button>
+      <button class="btn primary" id="ubAction"><span>Atualizar agora</span></button>
+    </div>
 
     <div class="pages" id="pages">
       <!-- INÍCIO -->
@@ -140,6 +148,65 @@
         <div class="profile-grid" id="profileGrid"></div>
       </section>
 
+      <!-- REAÇÕES -->
+      <section class="page" data-page="reactions">
+        <div class="glass react-hero spotlight">
+          <div class="react-pulse" aria-hidden="true"><i></i><i></i><i></i><svg><use href="#i-pulse"/></svg></div>
+          <div class="react-copy">
+            <h3>Sua iluminação reage ao seu PC</h3>
+            <p>Ligue qualquer sensor a qualquer zona: o teclado esquenta com o uso da CPU, as ventoinhas acompanham a temperatura da GPU, a fita do gabinete mostra quantos watts o PC está puxando.</p>
+          </div>
+          <label class="toggle-line big-toggle"><input type="checkbox" id="reactionsToggle"><span class="switch"></span><span id="reactionsToggleText">Reações desligadas</span></label>
+        </div>
+        <div class="glass rhythm-card">
+          <div class="rhythm-col">
+            <div class="rhythm-head"><h4>Atualizações por segundo</h4><output id="writesOut">—</output></div>
+            <div class="segmented rate-seg" id="rateSeg"></div>
+            <p class="hint" id="rateHint"></p>
+          </div>
+          <div class="rhythm-col">
+            <div class="rhythm-head"><h4>Transição entre as cores</h4><output id="smoothOut">—</output></div>
+            <input type="range" class="range" id="smoothRange" min="0" max="100" step="1">
+            <div class="range-labels"><span>Instantânea</span><span>Suave</span><span>Bem lenta</span></div>
+          </div>
+          <div class="rhythm-wide">
+            <label class="toggle-line"><input type="checkbox" data-pref="keyboardLive"><span class="switch"></span><span>Usar o canal ao vivo confirmado no teste</span></label>
+            <p class="hint">Modo de transição do teclado: <b id="kbMode">—</b></p>
+            <div class="kb-test">
+              <button class="btn primary" id="kbLampTest"><svg><use href="#i-bolt"/></svg><span>Testar Iluminação Dinâmica do Windows</span></button>
+              <div class="kb-ask" id="kbLampAsk" hidden>
+                <span>O teclado ficou rosa?</span>
+                <button class="chip-btn" data-lamp="lamp">Sim</button>
+                <button class="chip-btn" data-lamp="nolamp">Não</button>
+              </div>
+            </div>
+            <p class="hint">Alguns firmwares oferecem Iluminação Dinâmica; outros respondem aos comandos, mas não mostram as cores. O Lume só usa esse canal depois da sua confirmação visual. O teste restaura a iluminação anterior. <button class="link" data-open="lighting">Abrir Iluminação dinâmica do Windows</button>.</p>
+            <div class="kb-test">
+              <button class="btn ghost" id="kbTest"><svg><use href="#i-bolt"/></svg><span>Testar transição azul → vermelho (10 s)</span></button>
+              <div class="kb-ask" id="kbAsk" hidden>
+                <span>A transição passou por magenta sem apagar ou piscar?</span>
+                <button class="chip-btn" data-seen="smooth">Sim, ficou suave</button>
+                <button class="chip-btn" data-seen="none">Não funcionou</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="glass adv-card" id="advancedCard">
+          <div class="adv-icon"><svg><use href="#i-thermo"/></svg></div>
+          <div class="adv-text"><b id="advTitle">Sensores avançados</b><span id="advText"></span></div>
+          <button class="btn primary" id="advAction"><svg><use href="#i-bolt"/></svg><span>Ativar sensores avançados</span></button>
+          <button class="link" id="advLog" hidden>Ver registro</button>
+          <button class="link" id="advDiag">Copiar diagnóstico</button>
+          <button class="link" id="advPause" hidden>Pausar</button>
+          <button class="link" id="advRemove" hidden>Desativar</button>
+        </div>
+        <div class="section-head"><h3>Sensores ao vivo</h3><p>Atualizados várias vezes por segundo enquanto esta página está aberta.</p></div>
+        <div class="sensor-grid" id="sensorGrid"></div>
+        <div class="section-head"><h3>Suas reações</h3><p>Cada regra controla as zonas escolhidas. Se duas regras usam a mesma zona, vale a de baixo.</p></div>
+        <div class="preset-row" id="presetRow"></div>
+        <div class="rule-list" id="ruleList"></div>
+      </section>
+
       <!-- WIDGETS -->
       <section class="page" data-page="widgets">
         <div class="widgets-intro glass">
@@ -219,14 +286,27 @@
               <button class="btn ghost" id="importBtn"><svg><use href="#i-upload"/></svg><span>Importar</span></button>
               <button class="btn ghost" data-open="settings"><svg><use href="#i-folder"/></svg><span>Pasta das configurações</span></button>
               <button class="btn ghost" data-open="source"><svg><use href="#i-code"/></svg><span>Código-fonte</span></button>
+              <button class="btn ghost" id="diagBtn"><svg><use href="#i-pulse"/></svg><span>Copiar diagnóstico</span></button>
+              <button class="btn ghost" data-open="log"><svg><use href="#i-folder"/></svg><span>Registro de erros</span></button>
             </div>
-            <p class="hint">Tudo fica neste PC: %LOCALAPPDATA%\LumeRGBStandalone. Sem conta, sem internet.</p>
+            <p class="hint">Algo não funcionou? “Copiar diagnóstico” junta o estado dos dispositivos e sensores e o registro de erros num texto (abre no Bloco de Notas e vai para a área de transferência) para você colar numa mensagem.</p>
+            <p class="hint">Tudo fica neste PC: %LOCALAPPDATA%\LumeRGBStandalone. Sem conta; a internet só é usada para buscar atualizações no GitHub.</p>
+          </div>
+          <div class="glass panel" id="updatePanel">
+            <div class="panel-head"><h3>Atualizações</h3><span class="chip-btn" id="updChip">—</span></div>
+            <p class="upd-version">Versão <b id="updVersion">—</b> <span id="updDate"></span></p>
+            <p class="hint" id="updStatus">O Lume consulta o GitHub (branch main) sempre que abre.</p>
+            <label class="toggle-line"><input type="checkbox" data-pref="autoUpdate"><span class="switch"></span><span>Instalar atualizações automaticamente</span></label>
+            <div class="btn-grid">
+              <button class="btn ghost" id="updCheck"><svg><use href="#i-refresh"/></svg><span>Verificar agora</span></button>
+              <button class="btn ghost" id="updRepo"><svg><use href="#i-code"/></svg><span>Ver no GitHub</span></button>
+            </div>
           </div>
           <div class="glass panel about">
             <div class="panel-head"><h3>Sobre</h3></div>
             <p><b>Lume RGB <span id="appVersion"></span></b> controla diretamente por USB/HID a placa MSI MS-7E30 (JRGB1, JRGB2, JRAINBOW1, JRAINBOW2) e o teclado X68HE.</p>
             <p class="hint">GPL-2.0-or-later. Protocolo MSI baseado no OpenRGB. Efeitos visuais: Shaders (MIT). Interface: Microsoft Edge WebView2.</p>
-            <p class="hint">Atalhos: <kbd>1</kbd>–<kbd>6</kbd> páginas · <kbd>Ctrl</kbd>+<kbd>R</kbd> detectar · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> aplicar · <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> liga/desliga (em qualquer lugar)</p>
+            <p class="hint">Atalhos: <kbd>1</kbd>–<kbd>7</kbd> páginas · <kbd>Ctrl</kbd>+<kbd>R</kbd> detectar · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> aplicar · <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> liga/desliga (em qualquer lugar)</p>
           </div>
         </div>
       </section>
@@ -273,6 +353,10 @@
     <symbol id="i-breath" viewBox="0 0 24 24"><path d="M2 12c3 0 3-6 6-6s3 12 6 12 3-6 6-6h2"/></symbol>
     <symbol id="i-flash" viewBox="0 0 24 24"><path d="M3 18V6M8 18V6M13 18V6M18 18V6"/></symbol>
     <symbol id="i-dflash" viewBox="0 0 24 24"><path d="M3 18V6M6 18V6M13 18V6M16 18V6"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h4l3-8 4 16 3-8h6"/></symbol>
+    <symbol id="i-thermo" viewBox="0 0 24 24"><path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0Z"/><path d="M12 9v7"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1.5"/><path d="M7 7v10M11 7v10M15 7v10M5 17v3M19 17v3M9 17v3M15 17v3"/></symbol>
+    <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="11" rx="2"/><circle cx="9" cy="11.5" r="3"/><path d="M15 9h3M15 12h3M15 15h3M5 17v3"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7Z"/></symbol>
   </defs>
 </svg>

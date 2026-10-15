@@ -1,0 +1,17 @@
+/nologo
+/target:winexe
+/platform:x64
+/optimize+
+/utf8output
+/reference:System.dll
+/reference:System.Core.dll
+/reference:System.Drawing.dll
+/reference:System.Windows.Forms.dll
+/reference:System.Runtime.Serialization.dll
+/reference:System.Web.Extensions.dll
+/reference:System.Management.dll
+/reference:System.IO.Compression.dll
+/reference:System.IO.Compression.FileSystem.dll
+/reference:Microsoft.Web.WebView2.Core.dll
+/reference:Microsoft.Web.WebView2.WinForms.dll
+/reference:LibreHardwareMonitorLib.dll

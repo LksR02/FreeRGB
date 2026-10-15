@@ -1,0 +1,53 @@
+﻿PASS connect uses only GET query and never lighting change
+PASS GET report framing and Bit7 checksum
+PASS decode native state
+PASS brightness level 0, preserve static speed and option
+PASS brightness level 1, preserve static speed and option
+PASS brightness level 2, preserve static speed and option
+PASS brightness level 3, preserve static speed and option
+PASS brightness level 4, preserve static speed and option
+PASS breathing native speed and brightness quantization
+PASS SET Bit8 checksum
+PASS all unused native report bytes are zero
+PASS MSI-only effects rejected before traffic
+PASS invalid brightness rejected before traffic
+PASS invalid setting causes zero requests
+PASS corrupt outgoing checksum refused
+PASS nonzero outgoing padding refused
+PASS transport ownership disposal
+PASS stale first readback retries GET without repeating SET
+PASS wrong actual vendor refused
+PASS wrong vendor causes zero traffic
+PASS wrong HID collection refused
+PASS wrong descriptor length refused
+PASS same IDs but wrong product refused
+PASS wrong reply command refused
+PASS short reply refused
+PASS unknown brightness refused
+PASS wrong independent readback reported
+PASS readback failure disconnects
+PASS 126-cell frame splits into 7 chunks of 56 bytes
+PASS frame header, Bit7 checksum, chunk/last flags and colour bytes match the vendor app
+PASS live mode = native Screen color effect at full hardware brightness
+PASS corrupt frame checksum refused
+PASS two streamed colours send the mode command only once
+PASS handshake leaves Windows Dynamic Lighting as it is, then frames
+PASS Dynamic Lighting switched off and read back
+PASS Dynamic Lighting switched on (stream stopped first)
+PASS 0x14 only accepts 0 or 1
+PASS one colour keeps streaming at ~30 frames/s (30/s)
+PASS no GET request while streaming (read-back uses the last state)
+PASS stream stops by itself when nobody feeds it
+PASS a normal command ends the stream first
+PASS overlay variant: leaves Screen color, streams over a static effect
+PASS overlay variant never switches to Screen color
+PASS test streams for ~6 s (188 frames)
+PASS after the test the keyboard is back to its own effect and colour
+PASS refused live mode reported
+PASS refused live mode: still connected, no frames
+PASS refused live mode not retried
+PASS no repeated mode commands after a refusal
+PASS classic fast command still works
+PASS garbage replies retried, keyboard kept
+PASS persistent garbage still reported
+RESULT 52 meaningful protocol checks passed; no hardware touched.

@@ -1,0 +1,257 @@
+﻿RELATÓRIO INICIAL — AS CORREÇÕES E O RESULTADO FINAL ESTÃO EM CORRECOES-2026-10-12.txt.
+
+AUDITORIA DO LUME RGB — 12/10/2026
+
+Conclusão
+
+A falha relatada não é de reconhecimento do teclado: o X68HE aparece no Windows
+com a interface de configuração correta. O problema está no caminho usado para
+atualizar suas cores. O modo compatível reaplica o efeito a cada cor; as trocas
+manuais não têm interpolação temporal; a rota alternativa LampArray não apareceu
+na enumeração atual. O monitoramento avançado apresenta falhas reais no processo
+auxiliar de sensores, registradas no computador, além de problemas de tratamento
+de erro e atualização dos dados no código.
+
+1. Escopo e versões
+
+Pasta examinada: C:\Users\flavi\Documents\GitHub\FreeRGB.
+main/HEAD: e185e6a, aplicativo 3.0.
+Outra branch local/remota: claude/modernize-app-rgb-widgets-urx7a3,
+commit 5e66621, aplicativo 3.7. A consulta git ls-remote confirmou esses mesmos
+commits no GitHub durante a auditoria.
+
+A versão 3.0 não implementa sensores avançados nem reações. Essas funções existem
+na outra branch, desde a série 3.1–3.7. Portanto, analisar apenas main não explica
+as falhas do programa instalado.
+
+Também foi examinada a instalação em:
+C:\Users\flavi\Downloads\LumeRGB\LumeRGB.
+Seu version.json identifica d153df2, versão 3.7. HardwareMonitor.cs, LightingHub.cs,
+Reactive.cs, Sensors.cs e LumeApp.cs correspondem ao código da branch examinada,
+desconsiderando finais de linha. X68KeyboardController.cs difere no agendamento
+do laço de streaming: a instalação usa Sleep(33), a branch usa slots de tempo.
+Não foi comprovado que o executável carregado corresponde byte a byte aos fontes.
+
+Fontes de evidência: código e histórico Git, testes sem hardware, enumeração HID
+somente de metadados, configurações locais, erro.log, diagnostico.txt e consulta
+da tarefa agendada. Não foram enviados comandos de iluminação ao hardware nem
+alterados driver, tarefa agendada, configurações pessoais ou aplicativo instalado.
+
+2. O que o aplicativo implementa
+
+Hardware e iluminação:
+- MSI MS-7E30, HID 0DB0:0076, com número de série começando em 7E30;
+  quatro zonas: JRGB1, JRGB2, JRAINBOW1 e JRAINBOW2.
+- X68HE, HID 3151:502D, interface FFFF:0002, feature report de 65 bytes;
+  cor e efeito globais, não controle individual de teclas no Estúdio.
+- Placa: fixa, respiração, piscar, piscar duplo e relâmpago.
+- Teclado: fixa e respiração no controle clássico; brilho em níveis de 25%.
+- Leitura do estado, conferência das escritas comuns e fila única de operações.
+- Outros HID são listados, mas a presença deles não implica controle RGB.
+
+Uso do aplicativo:
+- Interface HTML/JS em WebView2, efeitos visuais em WebGPU e alternativa leve.
+- Estúdio com seleção de zonas, roda de cores, brilho, ritmo e aplicação ao vivo.
+- Oito cenas, perfis, nomes personalizados e paleta de cores.
+- Liga/desliga geral, memória para restaurar iluminação e widgets orbe/pílula/painel.
+- Bandeja, instância única, Ctrl+Alt+L, comandos --on/--off/--toggle/--background,
+  atalho de área de trabalho e inicialização opcional com o Windows.
+- Persistência JSON com backup, importação/exportação e preferências visuais.
+- Nova detecção em eventos de dispositivos; a 3.7 também tenta recuperar conexões.
+
+Funções adicionais na branch 3.7:
+- Reações: sensores dirigem cor ou brilho, gradiente com cor intermediária opcional,
+  suavização temporal, limite de atualização e alerta por respiração.
+- Sensores: uso de CPU/RAM/GPU, temperatura e potência de GPU, temperatura e potência
+  de CPU, temperatura da placa, ventoinha, frequência, disco e tráfego de rede.
+  CPU + GPU é uma soma estimada desses componentes, não consumo total na tomada.
+- Fontes: APIs e contadores do Windows, NVIDIA NVML, alternativas WMI/Windows e
+  LibreHardwareMonitorLib 0.9.6.0 para sensores avançados.
+- Sensores avançados: instalação/autorização de PawnIO, tarefa elevada sob demanda,
+  processo --sensor-host, comunicação por named pipe, watchdog e diagnóstico.
+- Teclado: testes de streaming proprietário e de Iluminação Dinâmica/LampArray.
+- Atualizador: consulta main no GitHub, prepara fontes/DLLs/UI, compila e instala.
+
+3. Teclado: causas e continuidade da falha
+
+3.1. Troca manual não tem transição temporal — confirmado por reprodução.
+LumeService.Apply/ApplyScene/ApplyColorToAll chamam backend.Apply com a cor final.
+X68KeyboardController.Apply envia um SET_LEDPARAM, comando 0x07. Não existe nesse
+fluxo uma sequência de cores intermediárias durante um intervalo de transição.
+O teste adicional partiu de azul e aplicou vermelho: houve uma única configuração
+do efeito, diretamente para vermelho.
+
+A animação suave de ui/fx.js muda a aparência da janela, não o LED físico. Ela não
+comprova que a transição do teclado é suave.
+
+3.2. Gradiente compatível reconfigura o efeito a cada passo — confirmado.
+X68KeyboardController.ApplyFast também usa BuildReport/0x07. O próprio código
+documenta que SET_LEDPARAM reinicia o efeito, produzindo piscada. Na reprodução,
+11 passos intermediários geraram 11 configurações completas do efeito, todas com
+brilho 100% e nenhuma com brilho zero. Isso distingue o reinício do efeito de uma
+ordem explícita para apagar os LEDs. O relato do usuário é compatível com esse
+caminho; a piscada física não foi novamente provocada nesta auditoria.
+
+3.3. Preferências atuais reforçam o comportamento observado.
+settings.json registra KeyboardCompat=true, ReactiveRate=1 e suavização=51.
+Quando as reações estão ativas, o modo clássico usa o comando que reinicia o efeito,
+e uma atualização por segundo produz passos grandes. No arquivo lido, as reações
+e as duas regras estavam desativadas; isso é um retrato da configuração, não prova
+de que estavam desativadas quando o usuário observou a falha.
+
+3.4. O protocolo alternativo enviado não foi validado visualmente neste teclado.
+Os registros de 12/10 mostram mais de mil quadros 0x0F enviados e respostas do
+usuário "none" às 15:41:42 e 15:43:05. Contar quadros confirma envio, não que o
+firmware aplicou as cores. O modo compatível continua necessário para as mudanças
+que funcionam, mas não satisfaz a exigência de transição sem piscadas.
+
+3.5. LampArray indisponível na enumeração atual — confirmado.
+WindowsDevices encontrou as coleções do X68HE, incluindo FFFF:0002 e FFFF:0001,
+mas nenhuma coleção na usage page 0059. WindowsLampArray.IsLampArray exige
+3151:502D e usage 0059:0001. Sem essa coleção, a rota LampArray da 3.7 não pode
+ser aberta; o código recai no comando clássico. Ativar o flag proprietário 0x14
+não prova que o firmware expõe uma interface LampArray utilizável.
+
+Referência oficial sobre dispositivos LampArray e controle no Windows:
+https://learn.microsoft.com/en-us/windows/apps/develop/devices-sensors/lighting-dynamic-lamparray
+
+3.6. Diagnóstico tem efeito colateral — confirmado por reprodução.
+LightingHub.Diagnostics consulta keyboard.DynamicLighting. Essa consulta chama
+StopStreaming em X68KeyboardController.DynamicLighting. O teste com transporte
+simulado confirmou que consultar o flag interrompe o streaming ativo. A reação
+pode retomá-lo depois, mas uma consulta diagnóstica não deve causar essa interrupção.
+
+3.7. O gradiente atual também pode passar por cores perceptualmente mais escuras.
+ReactiveEngine.Gradient interpola canais RGB. Azul #0000FF para vermelho #FF0000
+produz #800080 no meio: nenhum canal fica em 255, embora o brilho configurado
+permaneça constante. Isso não é apagar o LED, mas pode contrariar a preferência
+de evitar um vale de intensidade. Para o caminho azul→violeta→magenta→vermelho,
+interpolação de matiz com saturação e valor constantes evita essa redução do maior
+canal; constância perceptual exata ainda depende dos LEDs e da calibração.
+
+3.8. Os testes atuais deixam passar o requisito principal.
+Os transportes simulados aceitam os comandos e espelham seu estado; não simulam
+o apagamento interno ao reiniciar o efeito. O teste LampArray utiliza uma interface
+simulada, não descritores nem firmware do X68HE. Os testes aprovam o fallback
+clássico mesmo quando ele pode piscar. Assim, todos passarem não demonstra fluidez.
+
+4. Monitoramento avançado: evidências e causas
+
+4.1. Houve funcionamento parcial real, seguido de falha.
+diagnostico.txt, gerado às 15:43 na 3.6, guarda leituras de CPU 57,3 °C, placa
+42 °C e ventoinha 977 RPM, mas o estado do auxiliar já era error. Os logs mostram
+running às 15:42:02 e "parou de responder" às 15:42:34. Não é simplesmente uma
+lista de sensores vazia nem ausência universal de suporte ao Ryzen 5 9600X.
+
+4.2. Houve falhas de instalação/comunicação anteriores.
+O histórico contém pedido de nova autorização, pipe quebrado e falta de resposta
+do auxiliar. O diagnóstico antigo apontava a tarefa para Downloads\LumeRGB (6),
+pasta que não existe mais. A consulta atual aponta para Downloads\LumeRGB\LumeRGB,
+que existe. Portanto, caminho antigo é parte do histórico; não deve ser tratado
+como a causa comprovada do estado atual.
+
+4.3. O travamento na abertura da CPU foi registrado na 3.7.
+Às 15:58:31 o auxiliar iniciou; às 16:01:02 o watchdog registrou que
+LibreHardwareMonitor travou ao abrir os sensores da CPU por 150 s e encerrou
+o processo. HardwareSource abre a CPU com computer.Open; essa chamada síncrona
+pode bloquear antes de qualquer leitura. O watchdog protege o aplicativo,
+mas encerrar e tentar novamente não remove o motivo do bloqueio.
+
+PawnIO 2.2.0.0 está informado nos registros. A tarefa atual usa HighestAvailable
+e --sensor-host. "Este processo é administrador: False" no diagnóstico se refere
+ao aplicativo normal, não prova que o auxiliar não tenha sido elevado. Resultado
+0 da tarefa também não comprova fluxo contínuo de leituras.
+
+Não foi possível atribuir o bloqueio interno a um driver, mutex, biblioteca ou
+programa concorrente específico sem capturar a pilha do auxiliar no travamento.
+Serviços MSI/Mystic Light estavam ativos; conflito é uma hipótese a testar, não
+causa comprovada. O bloqueio preventivo do Lume verifica apenas OpenRGB.
+
+4.4. A melhoria de heartbeat não resolve todos os bloqueios.
+A 3.7 envia alive enquanto abre ou lê sensores e aceita cache por 30 s. Isso evita
+interpretar uma leitura lenta como processo morto. Porém, CPU e placa continuam
+no mesmo processo e são atualizadas sequencialmente. Uma chamada de placa travada
+durante Read impede publicar também a próxima leitura da CPU. O watchdog rotula
+essa fase apenas como read; a recuperação que pula a placa só atua quando a fase
+é board, ou seja, sua abertura. A promessa de isolamento entre CPU e placa é
+incompleta para travamentos em leituras posteriores.
+
+4.5. A mensagem de timeout pode estar errada — confirmado por reprodução.
+AdvancedSensors.Watch chama StopHost antes de escolher a mensagem com hostRunning.
+StopHost zera hostRunning. Assim, silêncio de um auxiliar que já estava funcionando
+pode ser descrito como demora para abrir. O teste adicional reproduziu esse caso.
+Isso atrapalha o diagnóstico e não é evidência de uma nova falha de autorização.
+
+4.6. Dados antigos podem parecer recém-lidos — confirmado por inspeção.
+HardwareSource.Read pula partes lentas por nextUpdate e reaproveita seus valores.
+Mesmo assim, cada publicação renova lastData global no cliente. Não há idade por
+sensor. Além disso, as exceções de Update são ignoradas e os valores antigos podem
+ser publicados novamente. A validade de 30 s mede a mensagem recebida, não
+necessariamente quando cada temperatura foi efetivamente medida.
+
+5. Outros desvios relevantes do comportamento prometido
+
+- O "restaurar exatamente" não é universal para o teclado: PowerOffNow normaliza
+  efeitos não suportados para Static, e PowerOnNow substitui cores muito escuras
+  por branco. O relatório bruto é preservado para a placa, não para todo estado
+  nativo do teclado. Isso pode alterar a aparência após desligar/ligar.
+- Na 3.0, LightingHub.GetZones não isola a falha de leitura do teclado: uma
+  exceção pode fazer a interface perder as zonas da placa também. A 3.7 melhora
+  esse isolamento e a recuperação.
+- O indicador de suporte na lista HID usa IDs mais amplos que a validação do
+  controlador; aparecer como compatível não prova conexão operacional.
+- O atualizador da 3.7 acompanha main, mas main remoto continua em 3.0. As
+  melhorias da branch não são distribuídas por esse fluxo enquanto não forem
+  integradas. A comparação aceita main atrás da instalação como "atualizado".
+
+6. Verificação executada
+
+Na main/3.0 passaram as quatro suítes existentes:
+MsiNativeTests, X68KeyboardControllerTests, SettingsTests e ServiceTests.
+
+Na branch/3.7 passaram as sete suítes sem hardware:
+MsiNativeTests, X68KeyboardControllerTests, SettingsTests, ServiceTests,
+ReactiveTests, UpdaterOfflineTests e AdvancedSensorsTests.
+Também passou a compilação completa do aplicativo com o csc do .NET Framework.
+Os testes de sensores aprovam auxiliares simulados; não exercitam PawnIO/LHM real.
+
+O probe adicional confirmou seis observações:
+1. Ponto médio RGB azul/vermelho #800080.
+2. Troca manual sem cores intermediárias.
+3. Reconfiguração do efeito por passo no gradiente clássico, sem brilho zero.
+4. Início do streaming com transporte simulado.
+5. Consulta DynamicLighting interrompendo esse streaming.
+6. Timeout de auxiliar em execução sendo descrito como falha de abertura.
+
+Cópia do probe e das saídas está em docs/auditoria-2026-10-12.
+Esse probe verifica o código 3.7 e não compila contra a main/3.0.
+Os testes da 3.7 foram feitos em cópia temporária, com somente o destino de
+AppLog redirecionado para não misturar erros simulados ao erro.log do usuário.
+Nenhuma alteração funcional foi aplicada aos fontes ou ao programa instalado.
+
+7. Ordem de correção para atender à intenção do usuário
+
+1. Trabalhar sobre a versão 3.7 e alinhar a branch de distribuição; compilar a
+   main atual como substituta perderia sensores e reações.
+2. Capturar pilha/etapa do auxiliar na abertura e em cada parte de Update;
+   registrar exceções, idade individual e origem de cada leitura. Separar CPU
+   e SuperIO em auxiliares independentes se o bloqueio da placa for confirmado.
+3. Corrigir a classificação do timeout e impedir que um leitor antigo interfira
+   com uma nova sessão do pipe; identificar cada sessão explicitamente.
+4. Confirmar um canal de cor contínua realmente aceito pelo firmware X68HE.
+   LampArray só é opção quando o descritor correspondente existir e funcionar.
+   O envio 0x0F já falhou visualmente; reenviá-lo mais rápido não prova solução.
+5. Criar um mecanismo temporal comum para Estúdio, cenas, perfis e reações,
+   interpolando cores e mantendo brilho/controle do dispositivo durante a troca.
+   Evitar reaplicar 0x07 a cada quadro se ele reinicia o efeito nesse firmware.
+6. Oferecer o caminho de matiz com intensidade de canal constante para evitar
+   escurecimento intermediário. Exemplo: azul→violeta→magenta→vermelho, sem preto.
+7. Fazer diagnóstico somente de consulta e testar azul→vermelho no dispositivo
+   real, incluindo redução de brilho, operação em segundo plano e disputa de
+   controle. Critério: cores intermediárias contínuas, sem apagamento e sem
+   reinício do efeito; troca abrupta não satisfaz esse critério.
+
+Limite: a auditoria identifica as rotas defeituosas e a continuidade documentada
+das falhas. Ainda não certifica uma correção física de fluidez nem identifica a
+pilha interna que bloqueia LibreHardwareMonitor. Esses pontos exigem validação
+no hardware e captura do auxiliar, respectivamente.

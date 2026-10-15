@@ -134,6 +134,27 @@ namespace LumeRgb
                 catch { Disconnect(); throw; }
             }
         }
+        // Fast path for reactive lighting: builds on the last known report and sends the same
+        // native SET sequence, but skips the read-back wait. LumeService re-reads every few seconds.
+        public void ApplyFast(List<ZoneSetting> settings)
+        {
+            lock (gate)
+            {
+                RequireConnected(); LastWriteVerified = false;
+                ValidateSettings(settings);
+                try
+                {
+                    if (latest == null) latest = ReadReport();
+                    byte[] next = BuildReport(latest, settings);
+                    transport.SetFeature((byte[])latest.Clone());
+                    transport.SetFeature((byte[])next.Clone());
+                    latest = next;
+                }
+                catch (ArgumentException) { throw; }
+                catch (NotSupportedException) { throw; }
+                catch { Disconnect(); throw; }
+            }
+        }
         // Writes back a report previously read from this same controller (used by "Ligar" to
         // restore exactly the effect that was active before "Desligar"). Same native sequence
         // as Apply: current settings first, then the saved ones. Never sets the flash flag.

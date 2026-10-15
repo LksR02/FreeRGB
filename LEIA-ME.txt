@@ -1,4 +1,39 @@
-﻿LUME RGB 3.0 — NOVA INTERFACE + WIDGETS NA ÁREA DE TRABALHO
+LUME RGB 3.8 — MONITORAMENTO CORRIGIDO E TRANSIÇÕES DO X68HE
+
+NOVO NA 3.8
+• Sensores de CPU e placa-mãe em processos independentes, com comunicação
+  assíncrona, limites de tempo, retomada após falhas e validade por sensor.
+  Validado neste PC por 90 segundos: temperatura e potência da CPU,
+  temperatura da placa-mãe e rotação da ventoinha, sem interrupção.
+• Protocolo do X68HE corrigido a partir do aplicativo de fábrica fornecido:
+  Screen color recebe uma cor RGB pelo comando 0x0E. Os sete pacotes 0x0F
+  usados antes eram ignorados e deixavam o teclado apagado nesse efeito.
+  Transição física de 30 segundos confirmada pelo usuário em 12/10/2026,
+  com cores intermediárias, sem apagar ou piscar (dispositivo 2472, firmware 0303).
+• Gradiente HSV: azul → magenta → vermelho conserva a intensidade máxima
+  dos canais. Estúdio, cenas e perfis enviam cores intermediárias ao longo
+  do tempo. Desligar continua sendo imediato.
+• O teste dentro do aplicativo mostra azul → magenta → vermelho, depois
+  restaura exatamente os parâmetros anteriores. Ative o canal ao vivo após
+  confirmar visualmente a transição. Ao sair do aplicativo, a última cor
+  manual passa para o efeito nativo para continuar acesa sem streaming.
+• Retirados os comandos 0x14/0x94: o driver deste teclado não confirma que
+  ativem Iluminação Dinâmica do Windows. O teste LampArray agora apenas usa
+  uma interface realmente anunciada pelo dispositivo.
+• Cores escuras salvas são preservadas ao desligar e ligar.
+• A tarefa de sensores precisa apontar para esta pasta; se mover o app,
+  use Reconfigurar sensores. Leituras indisponíveis não bloqueiam as demais.
+• Compilações locais de correção não são substituídas automaticamente pelo
+  atualizador. A atualização manual continua disponível.
+
+REAÇÕES E SENSORES
+Na página Reações, escolha sensor, zonas, faixa de valores, cores ou brilho.
+O ritmo permite 1–30 atualizações por segundo; a placa é limitada a 15/s.
+O ajuste de suavização controla a resposta entre leituras. Sensores básicos
+usam recursos do Windows; os avançados usam LibreHardwareMonitor e PawnIO.
+Ativar sensores avançados registra a tarefa do Windows com uma solicitação
+inicial de administrador. O aplicativo usa essa tarefa nas próximas sessões.
+Perfis, cenas, widgets, atalhos e configurações anteriores continuam disponíveis.
 
 ABRIR
 Extraia o zip inteiro (a pasta "ui" e as DLLs precisam ficar ao lado do exe) e
@@ -29,7 +64,7 @@ O QUE HÁ DE NOVO
 • Ajustes > Visual: Máximo / Equilibrado / Leve e "Reduzir movimento".
 
 ATALHOS DA JANELA
-1–6: páginas · Ctrl + R: detectar dispositivos · Ctrl + Enter: aplicar no
+1–7: páginas · Ctrl + R: detectar dispositivos · Ctrl + Enter: aplicar no
 Estúdio · Esc: descartar a prévia · Ctrl + Clique: marcar várias zonas.
 
 COMO FUNCIONA O DESLIGAR

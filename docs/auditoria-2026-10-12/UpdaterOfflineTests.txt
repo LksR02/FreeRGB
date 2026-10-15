@@ -1,0 +1,8 @@
+﻿PASS fake main is newer
+PASS fake repository downloaded and compiled ()
+PASS source file deleted upstream is removed (COMPILAR.bat compiles every .cs)
+PASS obsolete UI file removed
+PASS files outside the app's managed folders are kept
+PASS new files installed
+PASS version.json updated
+ALL OFFLINE UPDATER TESTS PASSED

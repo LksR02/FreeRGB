@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 // Lume RGB application core: one background worker serializes every hardware request, so the
 // main window, the tray menu, desktop widgets and the global shortcut can all act at once safely.
 using System;
@@ -13,6 +13,24 @@ using System.Threading.Tasks;
 
 namespace LumeRgb
 {
+    public static class AppLog
+    {
+        public static string Path
+        {
+            get { return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LumeRGBStandalone", "erro.log"); }
+        }
+        public static void Write(string text)
+        {
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
+                var info = new FileInfo(Path); if (info.Exists && info.Length > 512 * 1024) info.Delete(); // keep the log small
+                File.AppendAllText(Path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n\r\n");
+            }
+            catch { }
+        }
+    }
+
     public sealed class Scene
     {
         public string Id, Name, Color, Effect, Glow;
@@ -56,6 +74,7 @@ namespace LumeRgb
         List<RgbZone> zones = new List<RgbZone>();
         List<HidDeviceInfo> devices = new List<HidDeviceInfo>();
         bool busy, statusError, invalidSettings, scannedOnce;
+        int visibleJobs; // queued or running jobs that show the busy indicator (quiet reactive writes excluded)
         string busyText = "", status = "Iniciando…";
         bool? desiredPower; Task powerTask; bool powerQueued;
         int version;
@@ -86,30 +105,42 @@ namespace LumeRgb
             {
                 Action job = null;
                 lock (gate) { if (jobs.Count > 0) job = jobs.Dequeue(); }
-                if (job == null) { signal.WaitOne(500); continue; }
+                if (job == null)
+                {
+                    signal.WaitOne(60);
+                    bool flush; lock (gate) flush = raisePending && (DateTime.UtcNow - lastRaise).TotalMilliseconds >= RaiseInterval;
+                    if (flush) Raise();
+                    // A device that stopped answering is reconnected in the background (at most every 5 s).
+                    bool rescan; lock (gate) rescan = backend != null && backend.NeedsRescan && (DateTime.UtcNow - lastScan).TotalSeconds >= 5;
+                    if (rescan) { try { ScanNow(); } catch (Exception e) { AppLog.Write("Reconectar dispositivos: " + e.Message); } Raise(); }
+                    continue;
+                }
                 job();
             }
         }
-        Task Enqueue(string text, Action work, Func<string> success)
+        Task Enqueue(string text, Action work, Func<string> success) { return Enqueue(text, work, success, false); }
+        // quiet jobs (reactive lighting) run without the busy indicator so the UI does not flicker every second.
+        Task Enqueue(string text, Action work, Func<string> success, bool quiet) { return Enqueue(text, work, success, quiet, false); }
+        Task Enqueue(string text, Action work, Func<string> success, bool quiet, bool selfRaise)
         {
             var completion = new TaskCompletionSource<object>();
             Action job = delegate
             {
-                lock (gate) { busy = true; busyText = text; }
-                Raise();
+                if (!quiet) { lock (gate) { busy = true; busyText = text; } Raise(); }
                 Exception failure = null; string message = null;
                 try { work(); if (success != null) message = success(); }
                 catch (Exception e) { failure = e; }
                 lock (gate)
                 {
-                    busy = jobs.Count > 0;
+                    if (!quiet) visibleJobs--;
+                    busy = visibleJobs > 0;
                     if (failure != null) { status = Friendly(failure); statusError = true; }
                     else if (message != null) { status = message; statusError = false; }
                 }
-                Raise();
+                if (!selfRaise || failure != null) Raise();
                 if (failure != null) completion.TrySetException(failure); else completion.TrySetResult(null);
             };
-            lock (gate) { jobs.Enqueue(job); }
+            lock (gate) { jobs.Enqueue(job); if (!quiet) visibleJobs++; }
             signal.Set();
             return completion.Task;
         }
@@ -118,9 +149,20 @@ namespace LumeRgb
             while (e is AggregateException && e.InnerException != null) e = e.InnerException;
             return e.Message;
         }
+        // Fast reactive writes can happen 30x per second; the UI is told at most ~8x per second.
+        const int RaiseInterval = 120;
+        DateTime lastRaise = DateTime.MinValue; bool raisePending;
+        void RaiseThrottled()
+        {
+            lock (gate)
+            {
+                if ((DateTime.UtcNow - lastRaise).TotalMilliseconds < RaiseInterval) { raisePending = true; return; }
+            }
+            Raise();
+        }
         void Raise()
         {
-            lock (gate) version++;
+            lock (gate) { version++; lastRaise = DateTime.UtcNow; raisePending = false; }
             var handler = Changed; if (handler != null) try { handler(this, EventArgs.Empty); } catch { }
         }
 
@@ -181,15 +223,85 @@ namespace LumeRgb
         }
         void ScanNow()
         {
+            lastScan = DateTime.UtcNow;
             var found = enumerate();
             ILightingBackend next = backendFactory(found);
-            var list = next.IsConnected ? next.GetZones() : new List<RgbZone>();
+            next.KeyboardLive = KeyboardLiveWanted; next.KeyboardVariant = KeyboardVariantWanted;
             lock (gate)
             {
                 if (backend != null) backend.Dispose();
+                var list = next.IsConnected ? next.GetZones() : new List<RgbZone>();
                 backend = next; devices = found; zones = list; scannedOnce = true;
                 foreach (var z in zones) z.Name = ZoneNameUnlocked(z.Key);
+                streamedKeyboard = null;
             }
+            HealKeyboard();
+        }
+        DateTime lastScan = DateTime.MinValue;
+        // The keyboard can be left in the live mode (Lume closed or crashed while reactions drove it): it then
+        // shows a frozen frame and looks "dead". When no reaction is using it, bring back its normal colour.
+        void HealKeyboard()
+        {
+            RgbZone keyboard; bool reacting;
+            lock (gate)
+            {
+                keyboard = zones.FirstOrDefault(z => z.Key == "X68HE" && z.Effect == StreamEffect);
+                reacting = Settings.ReactionsEnabled && Settings.Reactions.Any(r => r.Enabled && r.Keys.Contains("X68HE"));
+            }
+            if (keyboard == null || reacting) return;
+            Color color = keyboard.CurrentColor; if (color.R + color.G + color.B < 24) color = Color.White;
+            try
+            {
+                backend.Apply(new List<ZoneSetting> { new ZoneSetting { Key = "X68HE", Color = color, BrightnessPercent = 100, Effect = "Static", SpeedPercent = keyboard.CurrentSpeedPercent } });
+                Refresh(); AppLog.Write("Teclado X68HE: estava preso no modo ao vivo; cor normal restaurada.");
+            }
+            catch (Exception e) { AppLog.Write("Teclado X68HE (restaurar modo ao vivo): " + e.Message); TryRefresh(); }
+        }
+        // ---------- keyboard live mode ----------
+        bool KeyboardLiveWanted { get { lock (gate) return !Settings.KeyboardCompat && Settings.KeyboardLiveVariant != null; } }
+        string KeyboardVariantWanted { get { lock (gate) return Settings.KeyboardLiveVariant ?? "screen"; } }
+        // Reversible blue-to-red transition; enable streaming only after visual confirmation.
+        public Task TestKeyboardLive()
+        {
+            return Enqueue("Testando o teclado: veja qual cor aparece…", delegate
+            {
+                EnsureReady();
+                try { backend.TestKeyboardLive(); }
+                finally { lock (gate) streamedKeyboard = null; TryRefresh(); }
+            }, () => "Teste do teclado concluído.");
+        }
+        // Test only a LampArray interface actually advertised by Windows.
+        public Task<string> TestWindowsLighting()
+        {
+            string outcome = null;
+            var task = Enqueue("Verificando a interface de Iluminação Dinâmica…", delegate
+            {
+                EnsureReady();
+                if (!backend.HasLampArray) { outcome = "unsupported"; return; }
+                backend.TestLampArray(); outcome = "shown"; TryRefresh();
+            }, () => outcome == "unsupported"
+                ? "O teclado não anuncia uma interface LampArray. O driver de fábrica não define um comando para ativá-la."
+                : "Teste concluído: o teclado ficou rosa?");
+            return task.ContinueWith(t => { if (t.IsFaulted) throw t.Exception.InnerException ?? t.Exception; return outcome; });
+        }
+        // seen: red | green | both | none | lamp | nolamp
+        public void SetKeyboardTestResult(string seen)
+        {
+            Mutate(s =>
+            {
+                if (seen == "lamp") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "lamparray"; }
+                else if (seen == "smooth" || seen == "red" || seen == "both") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "screen"; }
+                else if (seen == "green") { s.KeyboardCompat = false; s.KeyboardLiveVariant = "overlay"; }
+                else { s.KeyboardCompat = true; }
+            });
+            AppLog.Write("Teste do teclado: o usuário viu \"" + seen + "\".");
+            Raise();
+        }
+        // True when reactive keyboard updates go through the native live mode (no blinking).
+        public bool KeyboardLive
+        {
+            get { lock (gate) return KeyboardLiveWanted && (backend == null ||
+                (KeyboardVariantWanted == "lamparray" ? backend.HasLampArray : !backend.KeyboardStreamUnsupported)); }
         }
         string ZoneNameUnlocked(string key)
         {
@@ -200,8 +312,8 @@ namespace LumeRgb
         {
             string conflict = conflictCheck == null ? null : conflictCheck();
             if (conflict != null) throw new InvalidOperationException(conflict);
-            bool connected; lock (gate) connected = backend != null && backend.IsConnected;
-            if (!connected) ScanNow();
+            bool connected; lock (gate) connected = backend != null && backend.IsConnected && !backend.NeedsRescan;
+            if (!connected) ScanNow(); // also when one device dropped (unplugged, a failed read): reconnect it
             lock (gate) if (backend == null || !backend.IsConnected) throw new InvalidOperationException("Nenhum dispositivo de iluminação compatível está conectado.");
         }
         void Refresh()
@@ -209,12 +321,25 @@ namespace LumeRgb
             List<RgbZone> list;
             try { list = backend.GetZones(); }
             catch { lock (gate) zones = new List<RgbZone>(); throw; }
-            lock (gate) { zones = list; foreach (var z in zones) z.Name = ZoneNameUnlocked(z.Key); }
+            lock (gate)
+            {
+                zones = list;
+                foreach (var z in zones)
+                {
+                    z.Name = ZoneNameUnlocked(z.Key);
+                    if (z.Key == "X68HE" && streamedKeyboard != null && (z.Effect == StreamEffect || backend.KeyboardStreamed))
+                    { z.Effect = StreamEffect; z.CurrentColor = streamedKeyboard.Color; z.CurrentBrightnessPercent = streamedKeyboard.BrightnessPercent; }
+                }
+            }
         }
         void ApplyNow(List<ZoneSetting> settings)
         {
-            try { backend.Apply(settings); }
+            // Manual fades use a live channel only after its visual test was confirmed.
+            backend.KeyboardLive = KeyboardLiveWanted && Settings.KeyboardLiveVariant != null; backend.KeyboardVariant = KeyboardVariantWanted;
+            try { backend.ApplyTransition(settings); }
             catch { TryRefresh(); throw; }
+            if (settings.Any(s => s.Key == "X68HE"))
+                lock (gate) streamedKeyboard = backend.KeyboardStreamed ? settings.First(s => s.Key == "X68HE") : null;
             // An explicit change replaces whatever "Desligar" remembered for those zones.
             ForgetPower(settings.Where(s => s.BrightnessPercent > 0).Select(s => s.Key));
             Refresh();
@@ -226,7 +351,7 @@ namespace LumeRgb
             if (settings == null || settings.Count == 0) throw new ArgumentException("Selecione ao menos uma zona.");
             foreach (var s in settings) s.Effect = Normalize(s.Key, s.Effect);
             return Enqueue("Aplicando iluminação…", delegate { EnsureReady(); ApplyNow(settings); },
-                () => "Iluminação atualizada" + (backend.LastWriteVerified ? " e confirmada pelos dispositivos." : "."));
+                () => backend.TransitionNote ?? ("Iluminação atualizada" + (backend.LastWriteVerified ? " e confirmada pelos dispositivos." : ".")));
         }
         public Task ApplyScene(string id)
         {
@@ -242,7 +367,7 @@ namespace LumeRgb
                 EnsureReady();
                 List<string> keys; lock (gate) keys = zones.Select(z => z.Key).ToList();
                 ApplyNow(keys.Select(k => new ZoneSetting { Key = k, Color = color, Effect = Normalize(k, effect), BrightnessPercent = brightness, SpeedPercent = speed }).ToList());
-            }, () => message ?? "Cor aplicada a todas as zonas.");
+            }, () => backend.TransitionNote ?? message ?? "Cor aplicada a todas as zonas.");
         }
 
         // ---------- power ----------
@@ -317,7 +442,7 @@ namespace LumeRgb
                 if (z.CurrentBrightnessPercent > 0) continue;
                 var saved = memory == null ? null : memory.Zones.FirstOrDefault(m => m.Key == z.Key);
                 Color color = saved != null ? SettingsStore.ParseColor(saved.ColorHex) : z.CurrentColor;
-                if (color.R + color.G + color.B < 24) color = Color.White;
+                if (saved == null && color.R + color.G + color.B < 24) color = Color.White;
                 targets.Add(new ZoneSetting { Key = z.Key, Color = color, BrightnessPercent = saved != null && saved.Brightness > 0 ? saved.Brightness : 100,
                     Effect = Normalize(z.Key, saved != null ? saved.Effect : z.Effect), SpeedPercent = saved != null ? saved.Speed : z.CurrentSpeedPercent });
             }
@@ -344,6 +469,123 @@ namespace LumeRgb
                 });
             }
             catch { }
+        }
+
+        // ---------- reactive lighting ----------
+        readonly Dictionary<string, ZoneSetting> pendingReactive = new Dictionary<string, ZoneSetting>(); bool reactiveQueued; DateTime reactiveFailedAt = DateTime.MinValue;
+        public DateTime LastReactiveFailure { get { lock (gate) return reactiveFailedAt; } }
+        // Coalesced: while a reactive write is waiting, newer targets replace it instead of piling up.
+        public void ApplyReactive(List<ZoneSetting> settings)
+        {
+            if (settings == null || settings.Count == 0) return;
+            lock (gate)
+            {
+                // Merge per zone: a newer target replaces an older one, other zones keep their pending change.
+                foreach (var t in settings) pendingReactive[t.Key] = t;
+                if (reactiveQueued) return; reactiveQueued = true;
+            }
+            Enqueue(null, delegate
+            {
+                List<ZoneSetting> list;
+                lock (gate)
+                {
+                    list = pendingReactive.Values.ToList(); pendingReactive.Clear(); reactiveQueued = false;
+                    if (list.Count == 0 || desiredPower.HasValue || backend == null || !backend.IsConnected || PowerOf(zones) == "off") return;
+                    list = list.Where(t => zones.Any(z => z.Key == t.Key)).ToList();
+                    if (list.Count == 0) return;
+                }
+                string conflict = conflictCheck == null ? null : conflictCheck();
+                if (conflict != null) throw new InvalidOperationException(conflict);
+                // A device stopped answering: reconnect (at most every 5 s) instead of failing every write.
+                if (backend.NeedsRescan && (DateTime.UtcNow - lastScan).TotalSeconds >= 5)
+                {
+                    try { ScanNow(); } catch (Exception e) { AppLog.Write("Reconectar dispositivos: " + e.Message); }
+                    lock (gate) list = list.Where(t => zones.Any(z => z.Key == t.Key)).ToList();
+                    if (list.Count == 0) return;
+                }
+                backend.KeyboardLive = KeyboardLiveWanted; backend.KeyboardVariant = KeyboardVariantWanted;
+                foreach (var t in list) t.Effect = Normalize(t.Key, t.Effect);
+                try
+                {
+                    try { backend.ApplyFast(list); }
+                    catch (NotSupportedException)
+                    {
+                        // Board still in a synchronized mode: send all four headers once, keeping the others as they are.
+                        if (!list.Any(t => BoardKeys.Contains(t.Key))) throw;
+                        List<RgbZone> current; lock (gate) current = zones.Select(Copy).ToList();
+                        foreach (var z in current.Where(c => BoardKeys.Contains(c.Key) && !list.Any(t => t.Key == c.Key)))
+                            list.Add(new ZoneSetting { Key = z.Key, Color = z.CurrentColor, BrightnessPercent = z.CurrentBrightnessPercent, Effect = Normalize(z.Key, z.Effect), SpeedPercent = z.CurrentSpeedPercent });
+                        backend.ApplyFast(list);
+                    }
+                }
+                catch { lock (gate) reactiveFailedAt = DateTime.UtcNow; TryRefresh(); throw; }
+                lock (gate)
+                {
+                    reactiveWrites++;
+                    // No read-back on the fast path: mirror what was sent, then confirm with a real read now and then.
+                    foreach (var t in list)
+                    {
+                        var z = zones.FirstOrDefault(x => x.Key == t.Key); if (z == null) continue;
+                        z.CurrentColor = t.Color; z.CurrentBrightnessPercent = t.BrightnessPercent; z.Effect = t.Effect; z.CurrentSpeedPercent = t.SpeedPercent;
+                        if (t.Key == "X68HE" && backend.KeyboardStreamed) { z.Effect = StreamEffect; streamedKeyboard = t; }
+                    }
+                }
+                if ((DateTime.UtcNow - lastResync).TotalSeconds >= 3) { lastResync = DateTime.UtcNow; Refresh(); }
+                RaiseThrottled();
+            }, null, true, true);
+        }
+        DateTime lastResync = DateTime.UtcNow; int reactiveWrites;
+        // The keyboard's live mode keeps its colour in the stream, not in its readable parameters.
+        public const string StreamEffect = "Screen color";
+        ZoneSetting streamedKeyboard;
+        public int ReactiveWrites { get { lock (gate) return reactiveWrites; } }
+
+        // Used when reactions stop while everything is off: "Ligar" must bring back the pre-reaction look.
+        public void RestoreIntoPowerMemory(List<ZoneSetting> restore)
+        {
+            Mutate(s =>
+            {
+                var m = s.PowerMemory; if (m == null) return;
+                foreach (var r in restore)
+                {
+                    m.Zones.RemoveAll(z => z.Key == r.Key);
+                    m.Zones.Add(new ZoneProfile { Key = r.Key, ColorHex = SettingsStore.Hex(r.Color), Brightness = r.BrightnessPercent, Effect = Normalize(r.Key, r.Effect), Speed = r.SpeedPercent });
+                }
+                if (restore.Any(r => BoardKeys.Contains(r.Key))) m.BoardReportBase64 = null; // the raw report holds the reactive colours
+            });
+        }
+        // Text report for "Copiar diagnóstico": devices, raw keyboard state, zones (no personal data).
+        public Task<string> Diagnostics()
+        {
+            var done = new TaskCompletionSource<string>();
+            Enqueue(null, delegate
+            {
+                var lines = new List<string>();
+                try
+                {
+                    lock (gate)
+                    {
+                        lines.Add("Dispositivos HID encontrados: " + devices.Count);
+                        foreach (var d in devices.Where(d => d.VendorId == 0x0DB0 || d.VendorId == 0x3151))
+                            lines.Add(String.Format("  {0:X4}:{1:X4} usage {2:X4}:{3:X4} serial {4}", d.VendorId, d.ProductId, d.UsagePage, d.Usage, d.Serial));
+                        if (backend == null) lines.Add("Nenhum controlador aberto.");
+                        else { lines.Add(backend.Diagnostics()); foreach (var n in backend.DiscoveryNotes) lines.Add("Aviso: " + n); }
+                        foreach (var z in zones) lines.Add(String.Format("Zona {0}: {1} {2} brilho {3}% ritmo {4}%", z.Key, z.Effect, SettingsStore.Hex(z.CurrentColor), z.CurrentBrightnessPercent, z.CurrentSpeedPercent));
+                        lines.Add("Status: " + status + (statusError ? " (erro)" : ""));
+                        lines.Add("Reações: " + (Settings.ReactionsEnabled ? "ligadas" : "desligadas") + ", " + Settings.Reactions.Count + " regras, " + Settings.RateOrDefault + "/s, teclado " + (Settings.KeyboardCompat ? "compatível" : "ao vivo"));
+                    }
+                }
+                catch (Exception e) { lines.Add("Erro no diagnóstico: " + e.Message); }
+                done.TrySetResult(String.Join("\r\n", lines.ToArray()));
+            }, null, true);
+            return done.Task;
+        }
+        // Completes once every job queued before it has run (jobs are strictly FIFO).
+        public Task Idle() { return Enqueue(null, delegate { }, null, true); }
+        public List<ZoneSetting> CurrentSettings()
+        {
+            lock (gate) return zones.Select(z => new ZoneSetting { Key = z.Key, Color = z.CurrentColor, BrightnessPercent = z.CurrentBrightnessPercent,
+                Effect = Normalize(z.Key, z.Effect), SpeedPercent = z.CurrentSpeedPercent }).ToList();
         }
 
         // ---------- profiles ----------

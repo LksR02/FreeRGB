@@ -10,6 +10,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -24,8 +25,35 @@ namespace LumeRgb
         readonly LumeContext app;
         readonly WebView2 web;
         readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = 8 * 1024 * 1024 };
-        bool ready;
+        bool ready, watchingSensors;
         LumeService Service { get { return app.Service; } }
+        DateTime sensorsPushedAt;
+        void OnSensors(object sender, EventArgs e)
+        {
+            if ((DateTime.UtcNow - sensorsPushedAt).TotalMilliseconds < 180) return; // the page animates in between
+            sensorsPushedAt = DateTime.UtcNow; app.Post(PushSensors);
+        }
+        void WatchSensors(bool on)
+        {
+            on = on && Visible;
+            if (on == watchingSensors) return;
+            watchingSensors = on;
+            if (on) app.Sensors.Updated += OnSensors; else app.Sensors.Updated -= OnSensors;
+            app.Sensors.Want("ui", on);
+            if (on) PushSensors();
+        }
+        void PushSensors()
+        {
+            if (!ready || IsDisposed || web.CoreWebView2 == null) return;
+            try { web.CoreWebView2.PostWebMessageAsJson(json.Serialize(new Dictionary<string, object> { { "type", "sensors" }, { "sensors", SensorList() },
+                { "engine", new Dictionary<string, object> { { "active", app.Reactions.Active }, { "writesPerSecond", app.Reactions.WritesPerSecond } } },
+                { "advanced", new Dictionary<string, object> { { "state", app.Advanced.State }, { "detail", app.Advanced.Detail } } } })); } catch { }
+        }
+        List<Dictionary<string, object>> SensorList()
+        {
+            return app.Sensors.Snapshot().Select(r => new Dictionary<string, object> { { "id", r.Id }, { "name", r.Name }, { "unit", r.Unit }, { "available", r.Available },
+                { "value", r.Value }, { "source", r.Source }, { "reason", r.Reason }, { "min", r.DefaultMin }, { "max", r.DefaultMax } }).ToList();
+        }
 
         public LumeWindow(LumeContext app, bool devTools)
         {
@@ -38,7 +66,8 @@ namespace LumeRgb
             Controls.Add(web);
             EventHandler onState = delegate { PushState(); };
             app.StateChanged += onState;
-            FormClosed += delegate { app.StateChanged -= onState; };
+            FormClosed += delegate { app.StateChanged -= onState; WatchSensors(false); };
+            VisibleChanged += delegate { if (!Visible) WatchSensors(false); };
             Load += async delegate { await Initialize(devTools); };
         }
         protected override void OnHandleCreated(EventArgs e)
@@ -179,11 +208,74 @@ namespace LumeRgb
                 case "import": return Later(Import);
                 case "open": Open(Str(a, "what"), Str(a, "url")); return Done(true);
                 case "quit": app.Post(app.Exit); return Done(true);
+                case "sensorsWatch": WatchSensors(Bool(a, "on")); return Done(SensorList());
+                case "reactionsEnabled":
+                    Service.Mutate(s => s.ReactionsEnabled = Bool(a, "on")); app.Reactions.Refresh(); Service.NotifyChanged(); return Done(true);
+                case "reactionSave": return Done(SaveRule(a));
+                case "reactionDelete":
+                    Service.Mutate(s => s.Reactions = s.Reactions.Where(r => r.Id != Str(a, "id")).ToList()); app.Reactions.Refresh(); Service.NotifyChanged(); return Done(true);
+                case "sensorsSetup": return AdvancedSetup(false);
+                case "sensorsRemove": return AdvancedSetup(true);
+                case "sensorsPause":
+                    {
+                        bool pause = Bool(a, "paused");
+                        Service.Mutate(s => s.AdvancedPaused = pause);
+                        app.Advanced.SetPaused(pause, pause ? "Pausados por você. Temperatura da CPU volta a vir da estimativa do Windows." : null);
+                        Service.NotifyChanged(); return Done(true);
+                    }
+                case "diagnostics": return Diagnostics();
+                case "keyboardTest": return After(Service.TestKeyboardLive());
+                case "keyboardLampTest": return Service.TestWindowsLighting().ContinueWith(t => { if (t.IsFaulted) throw t.Exception.InnerException ?? t.Exception; return (object)t.Result; });
+                case "keyboardTestResult": Service.SetKeyboardTestResult(Str(a, "seen")); app.Reactions.Refresh(); return Done(true);
+                case "updateCheck": app.CheckForUpdates(true); return Done(true);
+                case "updateInstall": app.InstallUpdate(true); return Done(true);
                 default: throw new ArgumentException("Comando desconhecido: " + command);
             }
         }
+        // Runs the elevated one-time setup off the UI thread (UAC prompt, driver installer).
+        Task<object> AdvancedSetup(bool remove)
+        {
+            if (remove) app.Advanced.Stop();
+            else { try { Service.Mutate(s => s.AdvancedPaused = false); } catch { } app.Advanced.SetPaused(false, null); }
+            return Task.Factory.StartNew(() =>
+            {
+                bool ok = AdvancedSensors.RunSetup(remove);
+                app.Advanced.ResetConfiguredCache();
+                app.Post(() => Service.NotifyChanged());
+                if (!ok && !remove) throw new InvalidOperationException("A ativação foi cancelada ou não terminou. Nada foi alterado.");
+                return (object)ok;
+            });
+        }
+        string SaveRule(Dictionary<string, object> a)
+        {
+            string id = Str(a, "id");
+            if (String.IsNullOrEmpty(id)) id = Guid.NewGuid().ToString("N").Substring(0, 10);
+            object alert; a.TryGetValue("alertAbove", out alert);
+            var rule = new ReactiveRule
+            {
+                Id = id, Name = (Str(a, "name") ?? "").Trim(), Sensor = Str(a, "sensor"), Keys = List(a, "keys"),
+                Min = Num(a, "min"), Max = Num(a, "max"), Mode = Str(a, "mode") ?? "color",
+                ColorLow = Norm(Str(a, "colorLow")), ColorMid = String.IsNullOrEmpty(Str(a, "colorMid")) ? null : Norm(Str(a, "colorMid")), ColorHigh = Norm(Str(a, "colorHigh")),
+                Brightness = Int(a, "brightness"), AlertAbove = alert == null ? (double?)null : Num(a, "alertAbove"), Enabled = Bool(a, "enabled")
+            };
+            if (rule.Name.Length == 0) rule.Name = SensorHub.NameOf(rule.Sensor);
+            Service.Mutate(s =>
+            {
+                int index = s.Reactions.FindIndex(r => r.Id == id);
+                if (index >= 0) s.Reactions[index] = rule; else s.Reactions.Add(rule);
+            });
+            app.Reactions.Refresh(); Service.NotifyChanged();
+            return id;
+        }
+        static string Norm(string hex) { return SettingsStore.Hex(SettingsStore.ParseColor(hex)); }
+        static double Num(Dictionary<string, object> a, string key)
+        {
+            object v; return a.TryGetValue(key, out v) && v != null ? Convert.ToDouble(v, System.Globalization.CultureInfo.InvariantCulture) : double.NaN;
+        }
         void SetPreferences(Dictionary<string, object> a)
         {
+            if (a.ContainsKey("keyboardLive") && Bool(a, "keyboardLive") && Service.Settings.KeyboardLiveVariant == null)
+                throw new InvalidOperationException("Faça o teste do teclado e confirme as cores antes de ativar o canal ao vivo. Alguns firmwares apagam os LEDs nesse modo.");
             if (a.ContainsKey("startWithWindows")) SystemIntegration.SetStartWithWindows(Bool(a, "startWithWindows"));
             Service.Mutate(s =>
             {
@@ -195,9 +287,15 @@ namespace LumeRgb
                 if (a.ContainsKey("hotkey")) s.HotkeyDisabled = !Bool(a, "hotkey");
                 if (a.ContainsKey("alwaysOnTop")) s.AlwaysOnTop = Bool(a, "alwaysOnTop");
                 if (a.ContainsKey("liveApply")) s.LiveApply = Bool(a, "liveApply");
+                if (a.ContainsKey("autoUpdate")) s.AutoUpdateDisabled = !Bool(a, "autoUpdate");
+                if (a.ContainsKey("reactiveRate")) s.ReactiveRate = Math.Max(1, Math.Min(30, Int(a, "reactiveRate")));
+                if (a.ContainsKey("keyboardLive")) s.KeyboardCompat = !Bool(a, "keyboardLive");
+                if (a.ContainsKey("reactiveSmoothing")) s.ReactiveSmoothing = Math.Max(0, Math.Min(100, Int(a, "reactiveSmoothing")));
             });
             TopMost = Service.Settings.AlwaysOnTop;
             if (a.ContainsKey("hotkey")) app.ApplyHotkeyPreference();
+            if (a.ContainsKey("reactiveRate") || a.ContainsKey("reactiveSmoothing")) app.ApplyReactiveRhythm();
+            if (a.ContainsKey("keyboardLive")) app.Reactions.Refresh(); // re-send the keyboard through the chosen path
             app.Widgets.Sync(); Service.NotifyChanged();
         }
         string Export()
@@ -215,9 +313,39 @@ namespace LumeRgb
                 if (dialog.ShowDialog(this) != DialogResult.OK) return null;
                 var imported = SettingsStore.Load(dialog.FileName);
                 if (MessageBox.Show(this, "Substituir suas configurações locais pelas importadas? A iluminação não será alterada.", "Importar", MessageBoxButtons.YesNo) != DialogResult.Yes) return null;
-                Service.ReplaceSettings(imported); app.Widgets.Sync(); app.ApplyHotkeyPreference(); TopMost = Service.Settings.AlwaysOnTop;
+                Service.ReplaceSettings(imported); app.Widgets.Sync(); app.ApplyHotkeyPreference(); app.ApplyReactiveRhythm(); TopMost = Service.Settings.AlwaysOnTop;
                 return dialog.FileName;
             }
+        }
+        // "Copiar diagnóstico": one text with everything needed to understand a problem on this PC.
+        Task<object> Diagnostics()
+        {
+            return Task.Factory.StartNew(() =>
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("Lume RGB " + Program.Version + " — diagnóstico " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                sb.AppendLine(Environment.OSVersion + "  .NET " + Environment.Version + (Environment.Is64BitProcess ? " x64" : " x86"));
+                sb.AppendLine(); sb.AppendLine("== Dispositivos ==");
+                try { var t = Service.Diagnostics(); sb.AppendLine(t.Wait(8000) ? t.Result : "(o serviço não respondeu em 8 s)"); } catch (Exception e) { sb.AppendLine(e.Message); }
+                sb.AppendLine(); sb.AppendLine("== Sensores ==");
+                foreach (var r in app.Sensors.Snapshot())
+                    sb.AppendLine("  " + r.Id + ": " + (r.Available ? r.Value.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " " + r.Unit + " (" + r.Source + ")" : "indisponível — " + r.Reason));
+                sb.AppendLine(); sb.AppendLine("== Sensores avançados ==");
+                try { sb.AppendLine(app.Advanced.Diagnostics()); } catch (Exception e) { sb.AppendLine(e.Message); }
+                sb.AppendLine(); sb.AppendLine("== Registro (fim de erro.log) ==");
+                try
+                {
+                    if (File.Exists(AppLog.Path)) { var lines = File.ReadAllLines(AppLog.Path); foreach (var l in lines.Skip(Math.Max(0, lines.Length - 120))) sb.AppendLine(l); }
+                    else sb.AppendLine("(vazio)");
+                }
+                catch (Exception e) { sb.AppendLine(e.Message); }
+                string text = sb.ToString();
+                string file = Path.Combine(Path.GetDirectoryName(AppLog.Path), "diagnostico.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                File.WriteAllText(file, text, new UTF8Encoding(true));
+                app.Post(() => { try { Clipboard.SetText(text); } catch { } try { Process.Start("notepad.exe", "\"" + file + "\""); } catch { } });
+                return (object)file;
+            });
         }
         void Open(string what, string url)
         {
@@ -225,6 +353,8 @@ namespace LumeRgb
                 what == "source" ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "source") :
                 what == "app" ? AppDomain.CurrentDomain.BaseDirectory : null;
             if (what == "url") { OpenExternal(url); return; }
+            if (what == "lighting") { Process.Start("ms-settings:personalization-lighting"); return; }
+            if (what == "log") { if (!File.Exists(AppLog.Path)) throw new InvalidOperationException("Nenhum erro registrado ainda."); Process.Start("notepad.exe", "\"" + AppLog.Path + "\""); return; }
             if (target == null) throw new ArgumentException("Destino desconhecido.");
             Directory.CreateDirectory(target); Process.Start(target);
         }
@@ -261,11 +391,28 @@ namespace LumeRgb
                 { "invalidSettings", snap.InvalidSettings }, { "notes", snap.Notes },
                 { "zones", zones }, { "profiles", profiles }, { "scenes", scenes }, { "palette", settings.Palette.ToList() }, { "widgets", widgets }, { "devices", devices },
                 { "hotkey", "Ctrl + Alt + L" }, { "hotkeyActive", app.HotkeyRegistered },
+                { "reactions", new Dictionary<string, object> { { "enabled", settings.ReactionsEnabled }, { "active", app.Reactions.Active },
+                    { "rules", settings.Reactions.Select(r => new Dictionary<string, object> {
+                        { "id", r.Id }, { "name", r.Name }, { "sensor", r.Sensor }, { "keys", r.Keys.ToList() }, { "min", r.Min }, { "max", r.Max }, { "mode", r.Mode },
+                        { "colorLow", r.ColorLow }, { "colorMid", r.ColorMid }, { "colorHigh", r.ColorHigh }, { "brightness", r.Brightness },
+                        { "alertAbove", r.AlertAbove }, { "enabled", r.Enabled } }).ToList() } } },
+                { "update", UpdateState() },
+                { "advanced", new Dictionary<string, object> { { "state", app.Advanced.State }, { "detail", app.Advanced.Detail },
+                    { "configured", app.Advanced.Configured }, { "driver", app.Advanced.DriverReady }, { "paused", app.Advanced.Paused } } },
                 { "prefs", new Dictionary<string, object> {
                     { "visualLevel", settings.VisualLevel ?? "max" }, { "reduceMotion", settings.ReduceMotion }, { "widgetsOnTop", settings.WidgetsOnTop },
                     { "widgetsStill", settings.WidgetsStill }, { "quitOnClose", settings.QuitOnClose }, { "hotkey", !settings.HotkeyDisabled },
-                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "startWithWindows", SafeStartup() } } },
+                    { "alwaysOnTop", settings.AlwaysOnTop }, { "liveApply", settings.LiveApply }, { "autoUpdate", !settings.AutoUpdateDisabled }, { "reactiveRate", settings.RateOrDefault }, { "reactiveSmoothing", settings.SmoothingOrDefault }, { "keyboardLive", Service.KeyboardLive }, { "keyboardMode", Service.KeyboardLive ? settings.KeyboardLiveVariant : "classic" }, { "startWithWindows", SafeStartup() } } },
             };
+        }
+        Dictionary<string, object> UpdateState()
+        {
+            var u = app.Updater;
+            return new Dictionary<string, object> {
+                { "state", u.State }, { "installed", Updater.Short(u.Installed) }, { "installedDate", u.InstalledDate }, { "remote", Updater.Short(u.Remote) },
+                { "remoteDate", u.RemoteDate }, { "behind", u.Behind }, { "changes", u.Changes.ToList() }, { "error", u.Error },
+                { "lastCheck", u.LastCheck.HasValue ? u.LastCheck.Value.ToString("HH:mm") : null },
+                { "repo", Updater.Owner + "/" + Updater.Repository } };
         }
         static bool SafeStartup() { try { return SystemIntegration.StartsWithWindows; } catch { return false; } }
 

@@ -1,0 +1,43 @@
+﻿PASS sensors idle while there are no rules
+PASS sensors sampled once a rule is active
+PASS rule persisted and validated
+PASS CPU 0% -> keyboard green (streamed)
+PASS unchanged value sends nothing
+PASS CPU 100% -> keyboard red (after smoothing)
+PASS alert above 90%: the streamed keyboard breathes smoothly without leaving live mode (15–100%)
+PASS keyboard-only rule never writes to the board
+PASS 50% hits the middle colour
+PASS brightness mode: 60°C in 40–80 -> 50%
+PASS unavailable sensor leaves its zones unchanged
+PASS no reactive writes while everything is off
+PASS after Ligar the rule takes over again
+PASS switching reactions off restores the previous keyboard colour
+PASS sensors released when reactions are off
+PASS keyboard streams in its native live mode: at most one mode command, then only colour frames (no blinking)
+PASS every one of the 126 cells receives the same colour
+PASS 30 updates/s with smoothing 0: keyboard follows almost every step (31 distinct colours)
+PASS fast path state mirrors the hardware (frame = colour x brightness)
+PASS smoothing 100: a sudden drop fades instead of jumping (R=255)
+PASS …and arrives at the new colour after ~20 s of 30 Hz steps
+PASS smoothing maps to a time constant
+PASS board follows a flickering sensor but never above its pace (11,4/s)
+PASS zone removed from a still-active reaction is restored
+PASS other reactions keep their zones
+PASS keyboard reactive again
+PASS disabling reactions while off: Ligar restores the pre-reaction colour
+PASS rule with empty range rejected
+PASS compatible mode: classic keyboard commands, no live mode
+PASS live mode back on: keyboard streams again
+PASS closing the Lume restores the keyboard from the live mode
+PASS keyboard stuck in live mode at start is brought back to a normal colour
+PASS keyboard failure does not take the board zones down
+PASS keyboard reconnected in the background once it answers again
+PASS next action reconnects the keyboard and applies the colour
+PASS keyboard refusing the live mode still follows the reaction (classic commands)
+PASS …and keeps changing colour
+PASS LampArray: keyboard shows the reaction colour (green at 0%)
+PASS LampArray: follows the sensor step by step (11 updates)
+PASS LampArray: not one effect command or 0x0F frame sent to the keyboard (no blink)
+PASS LampArray: the page shows the live colour
+PASS reactions off: keyboard gets its own effect back
+ALL REACTIVE TESTS PASSED

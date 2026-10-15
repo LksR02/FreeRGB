@@ -1,0 +1,2 @@
+﻿PASS settings: five-item profile and identity roundtrip, aliases, palette, atomic backup, invalid save preserves previous file, bounds, unsupported keyboard effect, duplicate zones/names, unknown key, malformed JSON.
+No hardware commands sent.

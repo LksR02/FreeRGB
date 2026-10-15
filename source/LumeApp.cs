@@ -17,7 +17,7 @@ namespace LumeRgb
 {
     static class Program
     {
-        public const string Version = "3.0";
+        public const string Version = "3.8";
         static readonly string[] Commands = { "show", "toggle", "on", "off" };
         public static string EventName(string command) { return "Local\\LumeRGBStandalone." + command; }
 
@@ -30,19 +30,13 @@ namespace LumeRgb
             try { return Start(args); }
             catch (Exception e) { Crash(e); return 1; }
         }
-        public static string LogPath
-        {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LumeRGBStandalone", "erro.log"); }
-        }
-        public static void Log(string text)
-        {
-            try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)); File.AppendAllText(LogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + text + "\r\n\r\n"); } catch { }
-        }
+        public static string LogPath { get { return AppLog.Path; } }
+        public static void Log(string text) { AppLog.Write(text); }
         static void Crash(Exception e)
         {
-            string text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  Lume RGB " + Version + "  " + Environment.OSVersion + "  .NET " + Environment.Version +
+            string text = "Lume RGB " + Version + "  " + Environment.OSVersion + "  .NET " + Environment.Version +
                 (Environment.Is64BitProcess ? " x64" : " x86") + "\r\n" + (e == null ? "Erro desconhecido" : e.ToString()) + "\r\n\r\n";
-            try { Directory.CreateDirectory(Path.GetDirectoryName(LogPath)); File.AppendAllText(LogPath, text); } catch { }
+            AppLog.Write(text.TrimEnd());
             try
             {
                 MessageBox.Show("O Lume RGB encontrou um erro:\r\n\r\n" + (e == null ? "desconhecido" : e.GetBaseException().Message) +
@@ -53,8 +47,20 @@ namespace LumeRgb
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         static int Start(string[] args)
         {
+            // Elevated helpers (advanced sensors): no window, no single-instance lock.
+            if (args.Contains("--sensor-host")) return SensorHostProgram.Run();
+            int workerArgument = Array.IndexOf(args, "--sensor-worker"), workerParent;
+            if (workerArgument >= 0)
+                return workerArgument + 2 < args.Length && Int32.TryParse(args[workerArgument + 2], out workerParent)
+                    ? SensorHostProgram.RunWorker(args[workerArgument + 1], workerParent) : 2;
+            if (args.Contains("--setup-sensors")) return SensorSetup.Run(false);
+            if (args.Contains("--remove-sensors")) return SensorSetup.Run(true);
             string command = args.Contains("--toggle") ? "toggle" : args.Contains("--on") ? "on" : args.Contains("--off") ? "off" : "show";
             bool background = args.Contains("--background");
+            // After a self-update the new exe waits for the old process to release the single-instance lock.
+            int wait = Array.IndexOf(args, "--wait-pid"), pid;
+            if (wait >= 0 && wait + 1 < args.Length && Int32.TryParse(args[wait + 1], out pid))
+                try { using (var old = Process.GetProcessById(pid)) old.WaitForExit(20000); } catch (ArgumentException) { }
             bool first;
             using (var mutex = new Mutex(true, "Local\\LumeRGBStandalone", out first))
             {
@@ -67,7 +73,7 @@ namespace LumeRgb
                 try { SetProcessDPIAware(); } catch { }
                 Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
                 var events = Commands.Select(c => new EventWaitHandle(false, EventResetMode.AutoReset, EventName(c))).ToArray();
-                var context = new LumeContext(command, background, args.Contains("--devtools"), events, Commands);
+                var context = new LumeContext(command, background, args.Contains("--devtools"), events, Commands, args.Contains("--updated"));
                 Application.Run(context);
                 foreach (var e in events) e.Dispose();
                 return 0;
@@ -80,6 +86,11 @@ namespace LumeRgb
     {
         public readonly LumeService Service;
         public readonly WidgetManager Widgets;
+        public readonly SensorHub Sensors;
+        public readonly AdvancedSensors Advanced;
+        public readonly ReactiveEngine Reactions;
+        public readonly Updater Updater;
+        readonly System.Windows.Forms.Timer updateTimer = new System.Windows.Forms.Timer { Interval = 8000 };
         readonly SynchronizationContext ui;
         readonly NotifyIcon tray;
         readonly HostWindow host;
@@ -91,7 +102,7 @@ namespace LumeRgb
         public Icon AppIcon { get; private set; }
         public event EventHandler StateChanged;
 
-        public LumeContext(string command, bool background, bool devTools, EventWaitHandle[] events, string[] names)
+        public LumeContext(string command, bool background, bool devTools, EventWaitHandle[] events, string[] names, bool updated)
         {
             this.devTools = devTools;
             ui = new WindowsFormsSynchronizationContext();
@@ -99,6 +110,25 @@ namespace LumeRgb
             try { AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { AppIcon = SystemIcons.Application; }
             Service = LumeService.CreateDefault();
             Widgets = new WidgetManager(this);
+            Sensors = new SensorHub();
+            Advanced = new AdvancedSensors(Service.Settings.AdvancedPaused);
+            if (Advanced.EndedBadlyLastTime && !Service.Settings.AdvancedPaused)
+            {
+                // The last session ended (crash, freeze, forced close) while the elevated helper was running:
+                // keep the Lume usable and let the user decide whether to try again.
+                try { Service.Mutate(s => s.AdvancedPaused = true); } catch { }
+                Advanced.SetPaused(true, "Pausados automaticamente: o Lume fechou de forma inesperada enquanto eles estavam ativos. Clique em Retomar para tentar de novo.");
+            }
+            Sensors.Advanced = Advanced;
+            Advanced.Changed += delegate { Post(OnStateChanged); };
+            Reactions = new ReactiveEngine(Service, Sensors);
+            ApplyReactiveRhythm();
+            Updater = Updater.CreateDefault();
+            Updater.CleanupOldFiles();
+            Updater.Changed += delegate { Post(OnStateChanged); };
+            // First check a few seconds after start (every launch), then every 12 hours while running.
+            updateTimer.Tick += delegate { updateTimer.Interval = 12 * 60 * 60 * 1000; CheckForUpdates(false); };
+            updateTimer.Start();
             host = new HostWindow(this);
             HotkeyRegistered = host.RegisterToggleHotkey(!Service.Settings.HotkeyDisabled);
             tray = new NotifyIcon { Icon = AppIcon, Text = "Lume RGB", Visible = true, ContextMenuStrip = new ContextMenuStrip() };
@@ -116,6 +146,52 @@ namespace LumeRgb
             StartListener(events, names);
             Run(Service.Scan().ContinueWith(t => { if (command != "show") ui.Post(_ => Execute(command), null); }));
             if (!background && command == "show") ShowWindow();
+            if (updated) tray.ShowBalloonTip(4000, "Lume RGB atualizado", "Versão " + Updater.Short(Updater.Installed) + " instalada a partir do GitHub.", ToolTipIcon.Info);
+        }
+
+        // Sensors are sampled up to 20x per second; lights can be written up to 30x per second and glide in between.
+        public void ApplyReactiveRhythm()
+        {
+            Sensors.IntervalMs = 1000 / Math.Min(20, Math.Max(1, Service.Settings.RateOrDefault));
+            Reactions.Refresh();
+        }
+
+        // ---------- updates ----------
+        public bool WindowVisible { get { return window != null && !window.IsDisposed && window.Visible && window.WindowState != FormWindowState.Minimized; } }
+        public void CheckForUpdates(bool manual)
+        {
+            if (Updater.Busy || exiting) return;
+            Updater.Check().ContinueWith(t => Post(() =>
+            {
+                if (Updater.State == "available" && !Updater.LocalBuild && (!Service.Settings.AutoUpdateDisabled)) InstallUpdate(false);
+            }));
+        }
+        // Downloads + compiles in the background. Applies right away when nobody is looking at the window.
+        public void InstallUpdate(bool restartWhenReady)
+        {
+            if (Updater.Busy || exiting) return;
+            if (Updater.State == "ready") { if (restartWhenReady) RestartIntoUpdate(); return; }
+            Updater.Prepare().ContinueWith(t => Post(() =>
+            {
+                if (Updater.State != "ready") { if (restartWhenReady) Notify(Updater.Error ?? "A atualização falhou.", true); return; }
+                if (restartWhenReady || !WindowVisible) RestartIntoUpdate();
+                else Notify("Atualização pronta. Clique em Reiniciar no aviso do app.", false);
+            }));
+        }
+        public void RestartIntoUpdate()
+        {
+            try { Updater.Apply(); }
+            catch (Exception e) { Notify("Não foi possível instalar a atualização: " + e.Message, true); return; }
+            string args = "--wait-pid " + Process.GetCurrentProcess().Id + " --updated" + (WindowVisible ? "" : " --background");
+            try { Process.Start(Application.ExecutablePath, args); }
+            catch (Exception e)
+            {
+                // Keep running (files are already updated): the new version starts next time.
+                AppLog.Write("Reiniciar após atualização: " + e);
+                Notify("Atualização instalada. Não foi possível reiniciar sozinho; feche e abra o Lume para usar a nova versão.", true);
+                return;
+            }
+            Exit();
         }
         void OnStateChanged()
         {
@@ -190,10 +266,14 @@ namespace LumeRgb
         public void Exit()
         {
             if (exiting) return; exiting = true;
+            updateTimer.Stop();
+            // A downloaded update is installed on the way out, so the next start is already new.
+            if (Updater.State == "ready") try { Updater.Apply(); } catch { }
             tray.Visible = false; tray.Dispose();
             Widgets.CloseAll();
             if (window != null && !window.IsDisposed) window.Close();
             host.DestroyHandle();
+            Reactions.Dispose(); Sensors.Dispose(); Advanced.Dispose();
             Service.Dispose();
             ExitThread();
         }
@@ -379,8 +459,12 @@ namespace LumeRgb
                     items.Add(Item("Remover este widget", () => Safe(app, () => app.Widgets.Remove(widgetId)), null));
                 }
             }
+            var reactive = Item("Reações (CPU, GPU, temperatura…)", () => Safe(app, () => { service.Mutate(s => s.ReactionsEnabled = !s.ReactionsEnabled); app.Reactions.Refresh(); service.NotifyChanged(); }), null);
+            reactive.Checked = service.Settings.ReactionsEnabled; reactive.Enabled = service.Settings.Reactions.Count > 0; items.Add(reactive);
             items.Add(new ToolStripSeparator());
             items.Add(Item("Abrir Lume RGB", app.ShowWindow, null));
+            if (app.Updater.State == "ready") items.Add(Item("Reiniciar e atualizar", app.RestartIntoUpdate, null));
+            else items.Add(Item("Verificar atualizações", () => app.CheckForUpdates(true), null));
             items.Add(Item("Procurar dispositivos", () => app.Run(service.Scan()), null));
             items.Add(Item("Sair", app.Exit, null));
         }

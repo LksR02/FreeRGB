@@ -38,6 +38,24 @@ namespace LumeRgb
         [DataMember] public int Y;
         [DataMember] public bool Locked;
     }
+    // Reactive lighting: a PC sensor drives the colour (or brightness) of chosen zones.
+    [DataContract] public class ReactiveRule
+    {
+        [DataMember] public string Id;
+        [DataMember] public string Name;
+        [DataMember] public string Sensor;
+        [DataMember] public List<string> Keys = new List<string>();
+        [DataMember] public double Min;
+        [DataMember] public double Max;
+        [DataMember] public string Mode;          // "color" (gradient) or "brightness" (fixed colour, brightness follows the value)
+        [DataMember] public string ColorLow;
+        [DataMember] public string ColorMid;      // optional
+        [DataMember] public string ColorHigh;
+        [DataMember] public int Brightness;
+        [DataMember] public double? AlertAbove;   // breathing when the value passes this point
+        [DataMember] public bool Enabled;
+        [OnDeserializing] void Defaults(StreamingContext context) { Keys = new List<string>(); }
+    }
     // State saved when everything is switched off, so "Ligar" restores exactly what was there.
     [DataContract] public class PowerMemory
     {
@@ -61,9 +79,20 @@ namespace LumeRgb
         [DataMember] public bool ReduceMotion;
         [DataMember] public string VisualLevel;
         [DataMember] public bool LiveApply;
+        [DataMember] public List<ReactiveRule> Reactions = new List<ReactiveRule>();
+        [DataMember] public bool ReactionsEnabled;
+        [DataMember] public int? ReactiveRate;        // light updates per second (null = 10)
+        [DataMember] public int? ReactiveSmoothing;   // 0 = instant .. 100 = very slow fades (null = 40)
+        public int RateOrDefault { get { return ReactiveRate ?? 10; } }
+        public int SmoothingOrDefault { get { return ReactiveSmoothing ?? 40; } }
+        [DataMember] public bool AutoUpdateDisabled;
+        [DataMember] public bool KeyboardCompat;
+        [DataMember] public bool AdvancedPaused;
+        [DataMember] public string KeyboardLiveVariant;  // "screen" (default) or "overlay", chosen by the keyboard test      // advanced sensors (elevated LibreHardwareMonitor) switched off by the user or after a bad exit      // reactions drive the keyboard with the classic command (may blink)
         [OnDeserializing] void Defaults(StreamingContext context)
         {
             Profiles = new List<LightingProfile>(); Aliases = new List<ZoneAlias>(); Palette = new List<string>(); Widgets = new List<WidgetConfig>();
+            Reactions = new List<ReactiveRule>();
         }
         public string ZoneName(string key, string fallback)
         {
@@ -76,6 +105,7 @@ namespace LumeRgb
         public static readonly string[] Effects = { "Static", "Breathing", "Flashing", "Double flashing", "Lightning" };
         public static readonly string[] WidgetStyles = { "orb", "pill", "panel" };
         public static readonly string[] VisualLevels = { "max", "balanced", "light" };
+        public static readonly string[] SensorIds = { "cpu_load", "ram_load", "gpu_load", "gpu_temp", "gpu_power", "cpu_temp", "cpu_power", "total_power", "board_temp", "cpu_fan", "cpu_clock", "disk_load", "net_load" };
         public static Color ParseColor(string value)
         {
             if (value == null) throw new FormatException("Escolha uma cor hexadecimal como #7C6CFF.");
@@ -93,6 +123,7 @@ namespace LumeRgb
                 if (input.Length > 1024 * 1024) throw new InvalidDataException("Arquivo de configuração grande demais.");
                 var settings = (PersonalSettings)new DataContractJsonSerializer(typeof(PersonalSettings)).ReadObject(input);
                 if (settings != null && settings.Widgets == null) settings.Widgets = new List<WidgetConfig>();
+                if (settings != null && settings.Reactions == null) settings.Reactions = new List<ReactiveRule>();
                 Validate(settings); return settings;
             }
         }
@@ -114,6 +145,20 @@ namespace LumeRgb
             foreach (var w in settings.Widgets)
                 if (w == null || String.IsNullOrWhiteSpace(w.Id) || w.Id.Length > 40 || !widgetIds.Add(w.Id) || !WidgetStyles.Contains(w.Style) ||
                     Math.Abs(w.X) > 100000 || Math.Abs(w.Y) > 100000) throw new InvalidDataException("Widget inválido.");
+            if (settings.Reactions == null || settings.Reactions.Count > 32) throw new InvalidDataException("Lista de reações inválida.");
+            var ruleIds = new HashSet<string>();
+            foreach (var r in settings.Reactions)
+            {
+                if (r == null || String.IsNullOrWhiteSpace(r.Id) || r.Id.Length > 40 || !ruleIds.Add(r.Id) || r.Name == null || r.Name.Length > 60 ||
+                    !SensorIds.Contains(r.Sensor) || r.Keys == null || r.Keys.Count > 5 || r.Keys.Any(k => !ValidKey(k)) || r.Keys.Distinct().Count() != r.Keys.Count ||
+                    double.IsNaN(r.Min) || double.IsNaN(r.Max) || r.Max <= r.Min || Math.Abs(r.Min) > 100000 || Math.Abs(r.Max) > 100000 ||
+                    (r.Mode != "color" && r.Mode != "brightness") || r.Brightness < 0 || r.Brightness > 100)
+                    throw new InvalidDataException("Reação inválida.");
+                ParseColor(r.ColorLow); ParseColor(r.ColorHigh); if (r.ColorMid != null) ParseColor(r.ColorMid);
+            }
+            if ((settings.ReactiveRate.HasValue && (settings.ReactiveRate < 1 || settings.ReactiveRate > 30)) ||
+                (settings.ReactiveSmoothing.HasValue && (settings.ReactiveSmoothing < 0 || settings.ReactiveSmoothing > 100)))
+                throw new InvalidDataException("Ritmo das reações inválido.");
             if (settings.VisualLevel != null && !VisualLevels.Contains(settings.VisualLevel)) throw new InvalidDataException("Nível visual inválido.");
             if (settings.PowerMemory != null)
             {
